@@ -1,7 +1,7 @@
 extern crate core;
 
-use proc_macro2::{Ident, Span, TokenStream};
-use quote::{quote, ToTokens};
+use proc_macro2::{Ident, TokenStream};
+use quote::{format_ident, quote, ToTokens};
 use syn::{
     parse_macro_input, Data, DeriveInput, Fields, FieldsNamed, GenericArgument, PathArguments,
     Type, TypePath,
@@ -84,8 +84,8 @@ fn handle_named_field_path_type(
 pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     // Parse the input tokens into a syntax tree
     let input = parse_macro_input!(input as DeriveInput);
-    let ident = input.ident.to_token_stream();
-    let builder_ident = Ident::new(&format!("{}Builder", input.ident), Span::call_site());
+    let struct_name = &input.ident;
+    let builder_name = format_ident!("{}Builder", input.ident);
     let mut struct_field_names = Vec::new();
     let mut struct_field_definitions = Vec::new();
     let mut field_setters = Vec::new();
@@ -116,11 +116,11 @@ pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         }
     }
     let build_command = quote! {
-        pub fn build(&mut self) -> Result<#ident, Box<dyn Error>> {
+        pub fn build(&mut self) -> Result<#struct_name, Box<dyn Error>> {
             if #(#check_vec)* {
                 return Err(String::from("Please call all setter methods").into())
             }
-            Ok(#ident {
+            Ok(#struct_name {
                 #(#struct_field_names: self.#struct_field_names.to_owned().unwrap()),*
             })
         }
@@ -128,19 +128,19 @@ pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let output = quote! {
         use std::error::Error;
 
-        pub struct #builder_ident {
+        pub struct #builder_name {
             #(#struct_field_definitions),*
         }
 
-        impl #ident {
-            pub fn builder() -> #builder_ident {
-                #builder_ident {
+        impl #struct_name {
+            pub fn builder() -> #builder_name {
+                #builder_name {
                     #(#struct_field_names: None),*
                 }
             }
         }
 
-        impl #builder_ident {
+        impl #builder_name {
             #(#field_setters)*
 
             #build_command
