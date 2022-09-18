@@ -247,7 +247,7 @@ fn build_build_command(struct_name: &Ident, out_info: &OutputInfo) -> TokenStrea
     let struct_field_names = &out_info.struct_field_names;
     let mut field_assignments: Vec<TokenStream> = Vec::new();
     let mut struct_field_iter = struct_field_names.iter().peekable();
-    let mut check_conditions = Vec::new();
+    let mut checked_idents = Vec::new();
 
     while let Some(field_ident) = struct_field_iter.next() {
         let vec_field = out_info.vec_fields.contains_key(field_ident);
@@ -266,23 +266,13 @@ fn build_build_command(struct_name: &Ident, out_info: &OutputInfo) -> TokenStrea
             });
         }
         if !vec_field && !opt_field {
-            if let Some(&next_ident) = struct_field_iter.peek() {
-                if !out_info.vec_fields.contains_key(next_ident)
-                    && !out_info.opt_fields.contains(next_ident)
-                {
-                    check_conditions.push(quote! { self.#field_ident.is_none() || });
-                } else {
-                    check_conditions.push(quote! { self.#field_ident.is_none() });
-                }
-            } else {
-                check_conditions.push(quote! { self.#field_ident.is_none() });
-            }
+            checked_idents.push(field_ident);
         }
     }
     let mut check_all_fields_set = None;
-    if !check_conditions.is_empty() {
+    if !checked_idents.is_empty() {
         check_all_fields_set = Some(quote! {
-            if #(#check_conditions)* {
+            if #(self.#checked_idents.is_none())||* {
                 return Err(String::from("Please call all setter methods").into())
             }
         });
@@ -290,7 +280,7 @@ fn build_build_command(struct_name: &Ident, out_info: &OutputInfo) -> TokenStrea
 
     quote! {
         pub fn build(&mut self) -> Result<#struct_name, Box<dyn Error>> {
-            //#check_all_fields_set
+            #check_all_fields_set
 
             Ok(#struct_name {
                 #(#field_assignments),*
@@ -356,7 +346,7 @@ pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         impl #builder_name {
             #(#field_setters)*
 
-            q#build_command
+            #build_command
         }
     };
     proc_macro::TokenStream::from(output)
