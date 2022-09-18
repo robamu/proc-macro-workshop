@@ -51,26 +51,42 @@ fn handle_named_field_type(
     for attr in &field.attrs {
         process_field_attrs(field_ident, attr, out_info).expect("Processing field attr failed");
     }
-    for (idx, path_seg) in tpath.path.segments.iter().enumerate() {
-        if idx == 0 {
-            if path_seg.ident == "Option" {
-                is_opt_field = true;
-                // Need to insert this somewhere else after wrapped type is known..
-                out_info.opt_fields.insert(field_ident.clone());
-            }
-            if path_seg.ident == "Vec" {
-                is_vec_field = true;
-                if !out_info.vec_fields.contains_key(field_ident) {
-                    out_info
-                        .vec_fields
-                        .insert(field_ident.clone(), VecFieldInfo::default());
-                }
-            }
-        }
-
-        let full_type_token =
+    if let Some(first_path_seg) = tpath.path.segments.first() {
+        process_first_type_segment(
+            first_path_seg,
+            out_info,
+            field_ident,
+            &mut is_opt_field,
+            &mut is_vec_field,
+        )
+    }
+    let mut full_type_token = None;
+    for path_seg in &tpath.path.segments {
+        full_type_token =
             process_type_arguments(field_ident, path_seg, out_info, is_opt_field, is_vec_field);
-        generate_field_setters(field_ident, full_type_token, out_info, is_vec_field);
+    }
+    generate_field_setters(field_ident, full_type_token, out_info, is_vec_field);
+}
+
+fn process_first_type_segment(
+    first_seg: &PathSegment,
+    out_info: &mut OutputInfo,
+    field_ident: &Ident,
+    is_opt_field: &mut bool,
+    is_vec_field: &mut bool,
+) {
+    if first_seg.ident == "Option" {
+        *is_opt_field = true;
+        // Need to insert this somewhere else after wrapped type is known..
+        out_info.opt_fields.insert(field_ident.clone());
+    }
+    if first_seg.ident == "Vec" {
+        *is_vec_field = true;
+        if !out_info.vec_fields.contains_key(field_ident) {
+            out_info
+                .vec_fields
+                .insert(field_ident.clone(), VecFieldInfo::default());
+        }
     }
 }
 
@@ -211,6 +227,7 @@ fn generate_field_setters(
         }
     }
 }
+
 /// Collect generic arguments of a type in a recursive fashion
 fn collect_generic_arguments(generic_args: &AngleBracketedGenericArguments) -> Vec<TokenStream> {
     let mut generic_idents: Vec<TokenStream> = Vec::new();
