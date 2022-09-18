@@ -93,26 +93,20 @@ fn process_field_attrs(
             }
             let mut each_attr = false;
             for nested in &meta_list.nested {
-                match nested {
-                    NestedMeta::Meta(Meta::NameValue(meta_name_value)) => {
-                        if let Some(seg) = meta_name_value.path.segments.first() {
-                            if seg.ident == "each" {
-                                each_attr = true;
-                            }
-                        }
-                        match &meta_name_value.lit {
-                            Lit::Str(str) => {
-                                if each_attr {
-                                    let mut vec_info = VecFieldInfo::default();
-                                    let ident: Ident = str.parse()?;
-                                    vec_info.builder_ident = Some(ident);
-                                    out_info.vec_fields.insert(field_ident.clone(), vec_info);
-                                }
-                            }
-                            _ => {}
+                if let NestedMeta::Meta(Meta::NameValue(meta_name_value)) = nested {
+                    if let Some(seg) = meta_name_value.path.segments.first() {
+                        if seg.ident == "each" {
+                            each_attr = true;
                         }
                     }
-                    _ => {}
+                    if let Lit::Str(str) = &meta_name_value.lit {
+                        if each_attr {
+                            let mut vec_info = VecFieldInfo::default();
+                            let ident: Ident = str.parse()?;
+                            vec_info.builder_ident = Some(ident);
+                            out_info.vec_fields.insert(field_ident.clone(), vec_info);
+                        }
+                    }
                 }
             }
         }
@@ -144,7 +138,7 @@ fn process_type_arguments(
         PathArguments::AngleBracketed(ref generics) => {
             let generics_ident = collect_generic_arguments(generics);
             if is_vec_field {
-                if let Some(vec_info) = out_info.vec_fields.get_mut(&field_ident) {
+                if let Some(vec_info) = out_info.vec_fields.get_mut(field_ident) {
                     vec_info.wrapped_type = quote! { #(#generics_ident),* };
                     if vec_info.builder_ident.is_some() {
                         vec_info.create_builder_for_vec_field = true;
@@ -186,7 +180,7 @@ fn generate_field_setters(
     is_vec_field: bool,
 ) {
     let mut gen_all_at_once_builder = true;
-    if let Some(vec_info) = out_info.vec_fields.get_mut(&field_ident) {
+    if let Some(vec_info) = out_info.vec_fields.get_mut(field_ident) {
         if vec_info.create_builder_for_vec_field {
             let vec_builder_ident = vec_info.builder_ident.as_ref().unwrap();
             let wrapped_type = &vec_info.wrapped_type;
@@ -203,12 +197,11 @@ fn generate_field_setters(
     }
     if let Some(full_type) = full_type_token {
         if gen_all_at_once_builder {
-            let init_val;
-            if is_vec_field {
-                init_val = quote! { #field_ident };
+            let init_val = if is_vec_field {
+                quote! { #field_ident }
             } else {
-                init_val = quote! { Some(#field_ident) };
-            }
+                quote! { Some(#field_ident) }
+            };
             out_info.field_setters.push(quote! {
                 fn #field_ident(&mut self, #field_ident: #full_type) -> &mut Self {
                     self.#field_ident = #init_val;
@@ -252,17 +245,13 @@ fn collect_generic_arguments(generic_args: &AngleBracketedGenericArguments) -> V
 fn build_build_command(struct_name: &Ident, out_info: &OutputInfo) -> TokenStream {
     let struct_field_names = &out_info.struct_field_names;
     let mut field_assignments: Vec<TokenStream> = Vec::new();
-    let mut struct_field_iter = struct_field_names.iter().peekable();
+    let struct_field_iter = struct_field_names.iter().peekable();
     let mut checked_idents = Vec::new();
 
-    while let Some(field_ident) = struct_field_iter.next() {
+    for field_ident in struct_field_iter {
         let vec_field = out_info.vec_fields.contains_key(field_ident);
         let opt_field = out_info.opt_fields.contains(field_ident);
-        if opt_field {
-            field_assignments.push(quote! {
-                #field_ident: self.#field_ident.to_owned()
-            });
-        } else if vec_field {
+        if opt_field || vec_field {
             field_assignments.push(quote! {
                 #field_ident: self.#field_ident.to_owned()
             });
