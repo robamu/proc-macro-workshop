@@ -49,16 +49,16 @@ fn handle_named_field_type(
     let mut is_opt_field = false;
     let mut is_vec_field = false;
     for attr in &field.attrs {
-        process_field_attrs(field_ident, &attr, out_info).expect("Processing field attr failed");
+        process_field_attrs(field_ident, attr, out_info).expect("Processing field attr failed");
     }
     for (idx, path_seg) in tpath.path.segments.iter().enumerate() {
         if idx == 0 {
-            if path_seg.ident.to_string() == "Option" {
+            if path_seg.ident == "Option" {
                 is_opt_field = true;
                 // Need to insert this somewhere else after wrapped type is known..
                 out_info.opt_fields.insert(field_ident.clone());
             }
-            if path_seg.ident.to_string() == "Vec" {
+            if path_seg.ident == "Vec" {
                 is_vec_field = true;
                 if !out_info.vec_fields.contains_key(field_ident) {
                     out_info
@@ -68,9 +68,9 @@ fn handle_named_field_type(
             }
         }
 
-        if !process_type_arguments(field_ident, path_seg, out_info, is_opt_field, is_vec_field) {
-            continue;
-        }
+        let full_type_token =
+            process_type_arguments(field_ident, path_seg, out_info, is_opt_field, is_vec_field);
+        generate_field_setters(field_ident, full_type_token, out_info, is_vec_field);
     }
 }
 
@@ -84,7 +84,7 @@ fn process_field_attrs(
         Meta::List(meta_list) => {
             let mut try_process_nested_meta = false;
             if let Some(seg) = meta_list.path.segments.first() {
-                if seg.ident.to_string() == "builder" {
+                if seg.ident == "builder" {
                     try_process_nested_meta = true;
                 }
             }
@@ -96,7 +96,7 @@ fn process_field_attrs(
                 match nested {
                     NestedMeta::Meta(Meta::NameValue(meta_name_value)) => {
                         if let Some(seg) = meta_name_value.path.segments.first() {
-                            if seg.ident.to_string() == "each" {
+                            if seg.ident == "each" {
                                 each_attr = true;
                             }
                         }
@@ -127,7 +127,7 @@ fn process_type_arguments(
     out_info: &mut OutputInfo,
     is_opt_field: bool,
     is_vec_field: bool,
-) -> bool {
+) -> Option<TokenStream> {
     let type_ident = &path_seg.ident;
     let mut full_type_token = None;
     match path_seg.arguments {
@@ -176,7 +176,15 @@ fn process_type_arguments(
         }
         PathArguments::Parenthesized(_) => {}
     }
+    full_type_token
+}
 
+fn generate_field_setters(
+    field_ident: &Ident,
+    full_type_token: Option<TokenStream>,
+    out_info: &mut OutputInfo,
+    is_vec_field: bool,
+) {
     let mut gen_all_at_once_builder = true;
     if let Some(vec_info) = out_info.vec_fields.get_mut(&field_ident) {
         if vec_info.create_builder_for_vec_field {
@@ -209,9 +217,7 @@ fn process_type_arguments(
             });
         }
     }
-    true
 }
-
 /// Collect generic arguments of a type in a recursive fashion
 fn collect_generic_arguments(generic_args: &AngleBracketedGenericArguments) -> Vec<TokenStream> {
     let mut generic_idents: Vec<TokenStream> = Vec::new();
