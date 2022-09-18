@@ -49,20 +49,22 @@ fn handle_named_field_type(
     let mut is_opt_field = false;
     let mut is_vec_field = false;
     for attr in &field.attrs {
-        process_field_attrs(field_ident, &attr, out_info).ok();
+        process_field_attrs(field_ident, &attr, out_info).expect("Processing field attr failed");
     }
     for (idx, path_seg) in tpath.path.segments.iter().enumerate() {
         if idx == 0 {
-            if path_seg.ident == "Option" {
+            if path_seg.ident.to_string() == "Option" {
                 is_opt_field = true;
                 // Need to insert this somewhere else after wrapped type is known..
                 out_info.opt_fields.insert(field_ident.clone());
             }
-            if path_seg.ident == "Vec" {
+            if path_seg.ident.to_string() == "Vec" {
                 is_vec_field = true;
-                out_info
-                    .vec_fields
-                    .insert(field_ident.clone(), VecFieldInfo::default());
+                if !out_info.vec_fields.contains_key(field_ident) {
+                    out_info
+                        .vec_fields
+                        .insert(field_ident.clone(), VecFieldInfo::default());
+                }
             }
         }
 
@@ -77,7 +79,6 @@ fn process_field_attrs(
     attr: &Attribute,
     out_info: &mut OutputInfo,
 ) -> syn::Result<()> {
-    let mut each_attr = false;
     match attr.parse_meta()? {
         Meta::Path(_) => {}
         Meta::List(meta_list) => {
@@ -90,6 +91,7 @@ fn process_field_attrs(
             if !try_process_nested_meta {
                 return Ok(());
             }
+            let mut each_attr = false;
             for nested in &meta_list.nested {
                 match nested {
                     NestedMeta::Meta(Meta::NameValue(meta_name_value)) => {
@@ -101,12 +103,10 @@ fn process_field_attrs(
                         match &meta_name_value.lit {
                             Lit::Str(str) => {
                                 if each_attr {
-                                    if let Some(vec_info) =
-                                        out_info.vec_fields.get_mut(&field_ident)
-                                    {
-                                        let ident: Ident = str.parse()?;
-                                        vec_info.builder_ident = Some(ident);
-                                    }
+                                    let mut vec_info = VecFieldInfo::default();
+                                    let ident: Ident = str.parse()?;
+                                    vec_info.builder_ident = Some(ident);
+                                    out_info.vec_fields.insert(field_ident.clone(), vec_info);
                                 }
                             }
                             _ => {}
