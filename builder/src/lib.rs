@@ -1,11 +1,10 @@
-extern crate core;
-
 use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote, ToTokens};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use syn::{
-    parse_macro_input, AngleBracketedGenericArguments, Data, DeriveInput, Fields, FieldsNamed,
-    GenericArgument, PathArguments, Type, TypePath,
+    parse_macro_input, AngleBracketedGenericArguments, Attribute, Data, DeriveInput, Field, Fields,
+    FieldsNamed, GenericArgument, Lit, Meta, NestedMeta, PathArguments, PathSegment, Type,
+    TypePath,
 };
 
 #[allow(dead_code)]
@@ -13,78 +12,204 @@ fn dbg_derive_input(input: &DeriveInput) {
     dbg!("{:?}", input.clone());
 }
 
+#[derive(Default, Debug)]
+struct VecFieldInfo {
+    create_builder_for_vec_field: bool,
+    builder_ident: Option<Ident>,
+    wrapped_type: TokenStream,
+}
+
 #[derive(Default)]
 struct OutputInfo {
     struct_field_names: Vec<Ident>,
     struct_field_definitions: Vec<TokenStream>,
     field_setters: Vec<TokenStream>,
-    // Key: Name of optional field. Value: Type wrapped in Option
+    /// Hash map of field which are Vectors
+    vec_fields: HashMap<Ident, VecFieldInfo>,
     opt_fields: HashSet<Ident>,
 }
 
 fn handle_named_struct_fields(fields: FieldsNamed, out_info: &mut OutputInfo) {
-    for field in fields.named {
+    for field in &fields.named {
         if let Some(ref field_ident) = field.ident {
             out_info.struct_field_names.push(field_ident.clone());
-            if let Type::Path(p) = field.ty {
-                handle_named_field_type(p, field_ident, out_info);
+            if let Type::Path(tpath) = &field.ty {
+                handle_named_field_type(field, field_ident, tpath, out_info);
             }
         }
     }
 }
 
-fn handle_named_field_type(p: TypePath, field_ident: &Ident, out_info: &mut OutputInfo) {
-    let mut is_optional_field = false;
-    for (idx, path_seg) in p.path.segments.iter().enumerate() {
-        let mut full_type_token = None;
-        let type_ident = &path_seg.ident;
-        if type_ident == "Option" && idx == 0 {
-            is_optional_field = true;
-            // Need to insert this somewhere else after wrapped type is known..
-            out_info.opt_fields.insert(field_ident.clone());
+fn handle_named_field_type(
+    field: &Field,
+    field_ident: &Ident,
+    tpath: &TypePath,
+    out_info: &mut OutputInfo,
+) {
+    let mut is_opt_field = false;
+    let mut is_vec_field = false;
+    for attr in &field.attrs {
+        process_field_attrs(field_ident, &attr, out_info).ok();
+    }
+    for (idx, path_seg) in tpath.path.segments.iter().enumerate() {
+        if idx == 0 {
+            if path_seg.ident == "Option" {
+                is_opt_field = true;
+                // Need to insert this somewhere else after wrapped type is known..
+                out_info.opt_fields.insert(field_ident.clone());
+            }
+            if path_seg.ident == "Vec" {
+                is_vec_field = true;
+                out_info
+                    .vec_fields
+                    .insert(field_ident.clone(), VecFieldInfo::default());
+            }
         }
-        match path_seg.arguments {
-            PathArguments::None => {
-                // Is that even possible? Just continue here..
-                if is_optional_field {
-                    continue;
+
+        if !process_type_arguments(field_ident, path_seg, out_info, is_opt_field, is_vec_field) {
+            continue;
+        }
+    }
+}
+
+fn process_field_attrs(
+    field_ident: &Ident,
+    attr: &Attribute,
+    out_info: &mut OutputInfo,
+) -> syn::Result<()> {
+    let mut each_attr = false;
+    match attr.parse_meta()? {
+        Meta::Path(_) => {}
+        Meta::List(meta_list) => {
+            let mut try_process_nested_meta = false;
+            if let Some(seg) = meta_list.path.segments.first() {
+                if seg.ident.to_string() == "builder" {
+                    try_process_nested_meta = true;
+                }
+            }
+            if !try_process_nested_meta {
+                return Ok(());
+            }
+            for nested in &meta_list.nested {
+                match nested {
+                    NestedMeta::Meta(Meta::NameValue(meta_name_value)) => {
+                        if let Some(seg) = meta_name_value.path.segments.first() {
+                            if seg.ident.to_string() == "each" {
+                                each_attr = true;
+                            }
+                        }
+                        match &meta_name_value.lit {
+                            Lit::Str(str) => {
+                                if each_attr {
+                                    if let Some(vec_info) =
+                                        out_info.vec_fields.get_mut(&field_ident)
+                                    {
+                                        let ident: Ident = str.parse()?;
+                                        vec_info.builder_ident = Some(ident);
+                                    }
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        Meta::NameValue(_) => {}
+    }
+    Ok(())
+}
+
+fn process_type_arguments(
+    field_ident: &Ident,
+    path_seg: &PathSegment,
+    out_info: &mut OutputInfo,
+    is_opt_field: bool,
+    is_vec_field: bool,
+) -> bool {
+    let type_ident = &path_seg.ident;
+    let mut full_type_token = None;
+    match path_seg.arguments {
+        PathArguments::None => {
+            // Is that even possible? Just continue here..
+            if is_opt_field || is_vec_field {
+                panic!("No generic arguments for opt field or vec field");
+            }
+            out_info.struct_field_definitions.push(quote! {
+                #field_ident: Option<#type_ident>
+            });
+            full_type_token = Some(type_ident.to_token_stream());
+        }
+        PathArguments::AngleBracketed(ref generics) => {
+            let generics_ident = collect_generic_arguments(generics);
+            if is_vec_field {
+                if let Some(vec_info) = out_info.vec_fields.get_mut(&field_ident) {
+                    vec_info.wrapped_type = quote! { #(#generics_ident),* };
+                    if vec_info.builder_ident.is_some() {
+                        vec_info.create_builder_for_vec_field = true;
+                    }
                 }
                 out_info.struct_field_definitions.push(quote! {
-                    #field_ident: Option<#type_ident>
+                    #field_ident: #type_ident<#(#generics_ident),*>
                 });
-                full_type_token = Some(type_ident.to_token_stream());
+                full_type_token = Some(quote! { #type_ident<#(#generics_ident),*> });
             }
-            PathArguments::AngleBracketed(ref generics) => {
-                let generics_ident = collect_generic_arguments(generics);
-                if is_optional_field {
-                    // There is not explicit option wrapping necessary because the type identier
-                    // will be an option.
-                    out_info.struct_field_definitions.push(quote! {
-                        #field_ident: #type_ident<#(#generics_ident),*>
-                    });
-                    // Do not include the type identifier used for the setter function,
-                    // which is Option. If someone calls the setter function for an optional field,
-                    // we still want the API to expect the actual type, not being wrapped inside an
-                    // option.
-                    full_type_token = Some(quote! { #(#generics_ident),* });
-                } else {
-                    out_info.struct_field_definitions.push(quote! {
-                        #field_ident: Option<#type_ident<#(#generics_ident),*>>
-                    });
-                    full_type_token = Some(quote! { #type_ident<#(#generics_ident),*> });
-                }
+            if is_opt_field {
+                // There is not explicit option wrapping necessary because the type identier
+                // will be an option.
+                out_info.struct_field_definitions.push(quote! {
+                    #field_ident: #type_ident<#(#generics_ident),*>
+                });
+                // Do not include the type identifier used for the setter function,
+                // which is Option. If someone calls the setter function for an optional field,
+                // we still want the API to expect the actual type, not being wrapped inside an
+                // option.
+                full_type_token = Some(quote! { #(#generics_ident),* });
             }
-            PathArguments::Parenthesized(_) => {}
+            if !is_vec_field && !is_opt_field {
+                out_info.struct_field_definitions.push(quote! {
+                    #field_ident: Option<#type_ident<#(#generics_ident),*>>
+                });
+                full_type_token = Some(quote! { #type_ident<#(#generics_ident),*> });
+            }
         }
-        if let Some(full_type) = full_type_token {
+        PathArguments::Parenthesized(_) => {}
+    }
+
+    let mut gen_all_at_once_builder = true;
+    if let Some(vec_info) = out_info.vec_fields.get_mut(&field_ident) {
+        if vec_info.create_builder_for_vec_field {
+            let vec_builder_ident = vec_info.builder_ident.as_ref().unwrap();
+            let wrapped_type = &vec_info.wrapped_type;
+            out_info.field_setters.push(quote! {
+                fn #vec_builder_ident(&mut self, #vec_builder_ident: #wrapped_type) -> &mut Self {
+                    self.#field_ident.push(#vec_builder_ident);
+                    self
+                }
+            });
+            if field_ident == vec_builder_ident {
+                gen_all_at_once_builder = false;
+            }
+        }
+    }
+    if let Some(full_type) = full_type_token {
+        if gen_all_at_once_builder {
+            let init_val;
+            if is_vec_field {
+                init_val = quote! { #field_ident };
+            } else {
+                init_val = quote! { Some(#field_ident) };
+            }
             out_info.field_setters.push(quote! {
                 fn #field_ident(&mut self, #field_ident: #full_type) -> &mut Self {
-                    self.#field_ident = Some(#field_ident);
+                    self.#field_ident = #init_val;
                     self
                 }
             });
         }
     }
+    true
 }
 
 /// Collect generic arguments of a type in a recursive fashion
@@ -125,23 +250,33 @@ fn build_build_command(struct_name: &Ident, out_info: &OutputInfo) -> TokenStrea
     let mut check_conditions = Vec::new();
 
     while let Some(field_ident) = struct_field_iter.next() {
-        if out_info.opt_fields.contains(field_ident) {
+        let vec_field = out_info.vec_fields.contains_key(field_ident);
+        let opt_field = out_info.opt_fields.contains(field_ident);
+        if opt_field {
             field_assignments.push(quote! {
                 #field_ident: self.#field_ident.to_owned()
             });
-            continue;
-        }
-        field_assignments.push(quote! {
-            #field_ident: self.#field_ident.to_owned().unwrap()
-        });
-        if let Some(&next_ident) = struct_field_iter.peek() {
-            if out_info.opt_fields.contains(next_ident) {
-                check_conditions.push(quote! { self.#field_ident.is_none() });
-            } else {
-                check_conditions.push(quote! { self.#field_ident.is_none() || });
-            }
+        } else if vec_field {
+            field_assignments.push(quote! {
+                #field_ident: self.#field_ident.to_owned()
+            });
         } else {
-            check_conditions.push(quote! { self.#field_ident.is_none() });
+            field_assignments.push(quote! {
+                #field_ident: self.#field_ident.to_owned().unwrap()
+            });
+        }
+        if !vec_field && !opt_field {
+            if let Some(&next_ident) = struct_field_iter.peek() {
+                if !out_info.vec_fields.contains_key(next_ident)
+                    && !out_info.opt_fields.contains(next_ident)
+                {
+                    check_conditions.push(quote! { self.#field_ident.is_none() || });
+                } else {
+                    check_conditions.push(quote! { self.#field_ident.is_none() });
+                }
+            } else {
+                check_conditions.push(quote! { self.#field_ident.is_none() });
+            }
         }
     }
     let mut check_all_fields_set = None;
@@ -155,7 +290,7 @@ fn build_build_command(struct_name: &Ident, out_info: &OutputInfo) -> TokenStrea
 
     quote! {
         pub fn build(&mut self) -> Result<#struct_name, Box<dyn Error>> {
-            #check_all_fields_set
+            //#check_all_fields_set
 
             Ok(#struct_name {
                 #(#field_assignments),*
@@ -164,13 +299,13 @@ fn build_build_command(struct_name: &Ident, out_info: &OutputInfo) -> TokenStrea
     }
 }
 
-#[proc_macro_derive(Builder)]
+#[proc_macro_derive(Builder, attributes(builder))]
 pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     // Parse the input tokens into a syntax tree
     let input = parse_macro_input!(input as DeriveInput);
     let struct_name = &input.ident;
     let builder_name = format_ident!("{}Builder", input.ident);
-    // dbg_derive_input(&input);
+    //dbg_derive_input(&input);
     let mut out_info = OutputInfo::default();
 
     match input.data {
@@ -186,14 +321,22 @@ pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     }
 
     let build_command = build_build_command(struct_name, &out_info);
-
     let OutputInfo {
         struct_field_names,
         struct_field_definitions,
         field_setters,
         opt_fields: _,
+        vec_fields,
     } = &out_info;
-    // dbg!("{}", opt_fields);
+
+    let mut field_init_list = Vec::new();
+    for field_def in struct_field_names {
+        if vec_fields.contains_key(field_def) {
+            field_init_list.push(quote! { #field_def: Vec::new() });
+        } else {
+            field_init_list.push(quote! { #field_def: None });
+        }
+    }
 
     let output = quote! {
         use std::error::Error;
@@ -205,7 +348,7 @@ pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         impl #struct_name {
             pub fn builder() -> #builder_name {
                 #builder_name {
-                    #(#struct_field_names: None),*
+                    #(#field_init_list),*
                 }
             }
         }
@@ -213,7 +356,7 @@ pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         impl #builder_name {
             #(#field_setters)*
 
-            #build_command
+            q#build_command
         }
     };
     proc_macro::TokenStream::from(output)
