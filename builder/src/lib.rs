@@ -51,42 +51,24 @@ fn handle_named_field_type(
     for attr in &field.attrs {
         process_field_attrs(field_ident, attr, out_info).expect("Processing field attr failed");
     }
-    if let Some(first_path_seg) = tpath.path.segments.first() {
-        process_first_type_segment(
-            first_path_seg,
-            out_info,
-            field_ident,
-            &mut is_opt_field,
-            &mut is_vec_field,
-        )
-    }
-    let mut full_type_token = None;
-    for path_seg in &tpath.path.segments {
-        full_type_token =
-            process_type_arguments(field_ident, path_seg, out_info, is_opt_field, is_vec_field);
-    }
-    generate_field_setters(field_ident, full_type_token, out_info, is_vec_field);
-}
-
-fn process_first_type_segment(
-    first_seg: &PathSegment,
-    out_info: &mut OutputInfo,
-    field_ident: &Ident,
-    is_opt_field: &mut bool,
-    is_vec_field: &mut bool,
-) {
-    if first_seg.ident == "Option" {
-        *is_opt_field = true;
-        // Need to insert this somewhere else after wrapped type is known..
-        out_info.opt_fields.insert(field_ident.clone());
-    }
-    if first_seg.ident == "Vec" {
-        *is_vec_field = true;
-        if !out_info.vec_fields.contains_key(field_ident) {
-            out_info
-                .vec_fields
-                .insert(field_ident.clone(), VecFieldInfo::default());
+    // Only one type path segment supported
+    if let Some(type_path) = tpath.path.segments.first() {
+        if type_path.ident == "Option" {
+            is_opt_field = true;
+            // Need to insert this somewhere else after wrapped type is known..
+            out_info.opt_fields.insert(field_ident.clone());
         }
+        if type_path.ident == "Vec" {
+            is_vec_field = true;
+            if !out_info.vec_fields.contains_key(field_ident) {
+                out_info
+                    .vec_fields
+                    .insert(field_ident.clone(), VecFieldInfo::default());
+            }
+        }
+        let full_type_token =
+            process_type_arguments(field_ident, type_path, out_info, is_opt_field, is_vec_field);
+        generate_field_setters(field_ident, full_type_token, out_info, is_vec_field);
     }
 }
 
@@ -133,14 +115,14 @@ fn process_field_attrs(
 
 fn process_type_arguments(
     field_ident: &Ident,
-    path_seg: &PathSegment,
+    type_path: &PathSegment,
     out_info: &mut OutputInfo,
     is_opt_field: bool,
     is_vec_field: bool,
 ) -> Option<TokenStream> {
-    let type_ident = &path_seg.ident;
+    let type_ident = &type_path.ident;
     let mut full_type_token = None;
-    match path_seg.arguments {
+    match type_path.arguments {
         PathArguments::None => {
             // Is that even possible? Just continue here..
             if is_opt_field || is_vec_field {
