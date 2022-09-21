@@ -1,7 +1,6 @@
 use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote, ToTokens};
 use std::collections::{HashMap, HashSet};
-use syn::spanned::Spanned;
 use syn::{
     parse_macro_input, AngleBracketedGenericArguments, Attribute, Data, DeriveInput, Error, Field,
     Fields, FieldsNamed, GenericArgument, Lit, Meta, NestedMeta, PathArguments, PathSegment, Type,
@@ -51,7 +50,7 @@ fn handle_named_field_type(
     let mut is_opt_field = false;
     let mut is_vec_field = false;
     for attr in &field.attrs {
-        process_field_attrs(field_ident, attr, out_info)?;
+        process_field_attr(field_ident, attr, out_info)?;
     }
     // Only one type path segment supported
     if let Some(type_path) = tpath.path.segments.first() {
@@ -75,7 +74,7 @@ fn handle_named_field_type(
     Ok(())
 }
 
-fn process_field_attrs(
+fn process_field_attr(
     field_ident: &Ident,
     attr: &Attribute,
     out_info: &mut OutputInfo,
@@ -94,18 +93,18 @@ fn process_field_attrs(
             }
             let mut each_attr = false;
             for nested in &meta_list.nested {
-                if let NestedMeta::Meta(Meta::NameValue(meta_name_value)) = nested {
-                    if let Some(seg) = meta_name_value.path.segments.first() {
+                if let NestedMeta::Meta(Meta::NameValue(meta_nv)) = nested {
+                    if let Some(seg) = meta_nv.path.segments.first() {
                         if seg.ident == "each" {
                             each_attr = true;
                         } else {
-                            return Err(Error::new(
-                                nested.span(),
+                            return Err(Error::new_spanned(
+                                meta_list.to_token_stream(),
                                 "expected `builder(each = \"...\")`",
                             ));
                         }
                     }
-                    if let Lit::Str(str) = &meta_name_value.lit {
+                    if let Lit::Str(str) = &meta_nv.lit {
                         if each_attr {
                             let mut vec_info = VecFieldInfo::default();
                             let ident: Ident = str.parse()?;
@@ -113,6 +112,11 @@ fn process_field_attrs(
                             out_info.vec_fields.insert(field_ident.clone(), vec_info);
                         }
                     }
+                } else {
+                    return Err(Error::new_spanned(
+                        meta_list.to_token_stream(),
+                        "expected `builder(each = \"...\")`",
+                    ));
                 }
             }
         }
