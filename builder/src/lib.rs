@@ -1,9 +1,10 @@
 use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote, ToTokens};
 use std::collections::{HashMap, HashSet};
+use syn::spanned::Spanned;
 use syn::{
-    parse_macro_input, AngleBracketedGenericArguments, Attribute, Data, DeriveInput, Field, Fields,
-    FieldsNamed, GenericArgument, Lit, Meta, NestedMeta, PathArguments, PathSegment, Type,
+    parse_macro_input, AngleBracketedGenericArguments, Attribute, Data, DeriveInput, Error, Field,
+    Fields, FieldsNamed, GenericArgument, Lit, Meta, NestedMeta, PathArguments, PathSegment, Type,
     TypePath,
 };
 
@@ -29,15 +30,16 @@ struct OutputInfo {
     opt_fields: HashSet<Ident>,
 }
 
-fn handle_named_struct_fields(fields: FieldsNamed, out_info: &mut OutputInfo) {
+fn handle_named_struct_fields(fields: FieldsNamed, out_info: &mut OutputInfo) -> syn::Result<()> {
     for field in &fields.named {
         if let Some(ref field_ident) = field.ident {
             out_info.struct_field_names.push(field_ident.clone());
             if let Type::Path(tpath) = &field.ty {
-                handle_named_field_type(field, field_ident, tpath, out_info);
+                handle_named_field_type(field, field_ident, tpath, out_info)?;
             }
         }
     }
+    Ok(())
 }
 
 fn handle_named_field_type(
@@ -45,11 +47,11 @@ fn handle_named_field_type(
     field_ident: &Ident,
     tpath: &TypePath,
     out_info: &mut OutputInfo,
-) {
+) -> syn::Result<()> {
     let mut is_opt_field = false;
     let mut is_vec_field = false;
     for attr in &field.attrs {
-        process_field_attrs(field_ident, attr, out_info).expect("Processing field attr failed");
+        process_field_attrs(field_ident, attr, out_info)?;
     }
     // Only one type path segment supported
     if let Some(type_path) = tpath.path.segments.first() {
@@ -70,6 +72,7 @@ fn handle_named_field_type(
             process_type_arguments(field_ident, type_path, out_info, is_opt_field, is_vec_field);
         generate_field_setters(field_ident, full_type_token, out_info, is_vec_field);
     }
+    Ok(())
 }
 
 fn process_field_attrs(
@@ -95,6 +98,11 @@ fn process_field_attrs(
                     if let Some(seg) = meta_name_value.path.segments.first() {
                         if seg.ident == "each" {
                             each_attr = true;
+                        } else {
+                            return Err(Error::new(
+                                nested.span(),
+                                "expected `builder(each = \"...\")`",
+                            ));
                         }
                     }
                     if let Lit::Str(str) = &meta_name_value.lit {
@@ -148,7 +156,7 @@ fn process_type_arguments(
                 full_type_token = Some(quote! { #type_ident<#(#generics_ident),*> });
             }
             if is_opt_field {
-                // There is not explicit option wrapping necessary because the type identier
+                // There is not explicit option wrapping necessary because the type identifier
                 // will be an option.
                 out_info.struct_field_definitions.push(quote! {
                     #field_ident: #type_ident<#(#generics_ident),*>
@@ -295,7 +303,10 @@ pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     match input.data {
         Data::Struct(structure) => match structure.fields {
             Fields::Named(named_fields) => {
-                handle_named_struct_fields(named_fields, &mut out_info);
+                match handle_named_struct_fields(named_fields, &mut out_info) {
+                    Ok(_) => {}
+                    Err(e) => return e.into_compile_error().into(),
+                };
             }
             Fields::Unnamed(_) => {}
             Fields::Unit => {}
