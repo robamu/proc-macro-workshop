@@ -141,7 +141,7 @@ fn process_type_arguments(
                 panic!("No generic arguments for opt field or vec field");
             }
             out_info.struct_field_definitions.push(quote! {
-                #field_ident: Option<#type_ident>
+                #field_ident: core::option::Option<#type_ident>
             });
             full_type_token = Some(type_ident.to_token_stream());
         }
@@ -210,7 +210,7 @@ fn generate_field_setters(
             let init_val = if is_vec_field {
                 quote! { #field_ident }
             } else {
-                quote! { Some(#field_ident) }
+                quote! { core::option::Option::Some(#field_ident) }
             };
             out_info.field_setters.push(quote! {
                 fn #field_ident(&mut self, #field_ident: #full_type) -> &mut Self {
@@ -285,7 +285,7 @@ fn build_build_command(struct_name: &Ident, out_info: &OutputInfo) -> TokenStrea
     }
 
     quote! {
-        pub fn build(&mut self) -> Result<#struct_name, Box<dyn Error>> {
+        pub fn build(&mut self) -> core::result::Result<#struct_name, alloc::boxed::Box<dyn std::error::Error>> {
             #check_all_fields_set
 
             Ok(#struct_name {
@@ -338,6 +338,7 @@ pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     }
 
     let output = quote! {
+        extern crate alloc;
         use std::error::Error;
 
         pub struct #builder_name {
