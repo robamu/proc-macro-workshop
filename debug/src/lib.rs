@@ -1,7 +1,7 @@
 use quote::quote;
 use syn::{parse_macro_input, Data, DeriveInput};
 
-#[proc_macro_derive(CustomDebug)]
+#[proc_macro_derive(CustomDebug, attributes(debug))]
 pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     let struct_ident = &input.ident;
@@ -9,6 +9,9 @@ pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
     let mut field_idents = Vec::new();
 
+    for _attr in input.attrs {
+
+    }
     match input.data {
         Data::Struct(s_data) => {
             for field in s_data.fields {
@@ -33,7 +36,9 @@ pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
         impl fmt::Debug for #struct_ident {
             fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), core::fmt::Error> {
-                f.debug_struct(#ident_as_str)#(#field_formatters)*.finish()
+                f.debug_struct(#ident_as_str)
+                    #(#field_formatters)*
+                    .finish()
             }
         }
     };
