@@ -6,23 +6,21 @@
 // To run the code:
 //     $ cargo run
 
-use derive_builder::Builder;
+use derive_debug::CustomDebug;
 
-#[derive(Builder)]
-pub struct Command {
-    executable: String,
-    #[builder(each = "arg")]
-    args: Vec<String>,
-    #[builder(each = "env")]
-    env: Vec<String>,
-    current_dir: Option<String>,
+#[derive(CustomDebug)]
+pub struct Field {
+    name: &'static str,
+    bitmask: u8,
 }
 
 fn main() {
-    let _command = Command::builder()
-        .executable("cargo".to_owned())
-        //.arg("build".to_owned())
-        //.arg("--release".to_owned())
-        .build()
-        .unwrap();
+    let f = Field {
+        name: "F",
+        bitmask: 0b00011100,
+    };
+
+    let debug = format!("{:?}", f);
+    println!("{:?}", debug);
+    assert!(debug.starts_with(r#"Field { name: "F","#));
 }
