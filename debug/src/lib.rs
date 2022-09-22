@@ -1,8 +1,13 @@
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::{parse_macro_input, Data, DeriveInput, Field, Lit, Meta};
+use syn::{parse_macro_input, Data, DeriveInput, Field, Generics, Lit, Meta};
 
-fn handle_field(field: &Field, field_formatters: &mut Vec<TokenStream>) -> syn::Result<()> {
+fn handle_field(
+    field: &Field,
+    field_formatters: &mut Vec<TokenStream>,
+    generics: &Generics,
+) -> syn::Result<()> {
+    dbg!("{:#?}", &generics);
     if let Some(fident) = &field.ident {
         let mut field_modifier = None;
         for attr in &field.attrs {
@@ -44,7 +49,7 @@ pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     match input.data {
         Data::Struct(s_data) => {
             for field in s_data.fields {
-                match handle_field(&field, &mut field_formatters) {
+                match handle_field(&field, &mut field_formatters, &input.generics) {
                     Ok(_) => {}
                     Err(e) => return e.into_compile_error().into(),
                 }
