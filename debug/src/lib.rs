@@ -46,6 +46,15 @@ pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
     let mut field_formatters = Vec::new();
 
+    let mut no_generics = true;
+    for _generic in &input.generics.params {
+       no_generics = false;
+    }
+    let impl_tt = if no_generics {
+        quote! { impl fmt::Debug for #struct_ident }
+    } else {
+        quote! { impl fmt::Debug for #struct_ident }
+    };
     match input.data {
         Data::Struct(s_data) => {
             for field in s_data.fields {
@@ -62,7 +71,7 @@ pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let output = quote! {
         use core::fmt;
 
-        impl fmt::Debug for #struct_ident {
+        #impl_tt {
             fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), core::fmt::Error> {
                 f.debug_struct(#ident_as_str)
                     #(#field_formatters)*
