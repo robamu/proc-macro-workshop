@@ -1,13 +1,9 @@
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::{parse_macro_input, Data, DeriveInput, Field, Generics, Lit, Meta};
+use syn::spanned::Spanned;
+use syn::{parse_macro_input, Data, DeriveInput, Field, GenericParam, Lit, Meta};
 
-fn handle_field(
-    field: &Field,
-    field_formatters: &mut Vec<TokenStream>,
-    generics: &Generics,
-) -> syn::Result<()> {
-    dbg!("{:#?}", &generics);
+fn handle_field(field: &Field, field_formatters: &mut Vec<TokenStream>) -> syn::Result<()> {
     if let Some(fident) = &field.ident {
         let mut field_modifier = None;
         for attr in &field.attrs {
@@ -46,19 +42,29 @@ pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
     let mut field_formatters = Vec::new();
 
-    let mut no_generics = true;
-    for _generic in &input.generics.params {
-       no_generics = false;
+    let mut impl_tt = None;
+    for generic in &input.generics.params {
+        let (impl_generics, type_generics, _) = input.generics.split_for_impl();
+        let gen_ident = if let GenericParam::Type(ty) = generic {
+            &ty.ident
+        } else {
+            return syn::Error::new(generic.span(), "Can only deal with type generics")
+                .to_compile_error()
+                .into();
+        };
+        impl_tt = Some(quote! {
+            impl #impl_generics fmt::Debug for #struct_ident #type_generics
+                where #gen_ident: fmt::Debug
+        });
     }
-    let impl_tt = if no_generics {
-        quote! { impl fmt::Debug for #struct_ident }
-    } else {
-        quote! { impl fmt::Debug for #struct_ident }
-    };
+    if impl_tt.is_none() {
+        impl_tt = Some(quote! { impl fmt::Debug for #struct_ident });
+    }
+    let impl_tt = impl_tt.unwrap();
     match input.data {
         Data::Struct(s_data) => {
             for field in s_data.fields {
-                match handle_field(&field, &mut field_formatters, &input.generics) {
+                match handle_field(&field, &mut field_formatters) {
                     Ok(_) => {}
                     Err(e) => return e.into_compile_error().into(),
                 }
