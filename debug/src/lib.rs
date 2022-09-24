@@ -112,29 +112,34 @@ pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     }
     let mut trait_bounds = Vec::new();
     if !generic_idents.is_empty() {
-        for (ident, info) in generic_idents {
+        for (ident, info) in &generic_idents {
             if !info.no_trait_bound_generation {
                 trait_bounds.push(quote! {
-                   #ident: fmt::Debug
+                   #ident: core::fmt::Debug
                 });
             }
         }
     }
-    let impl_tt = if trait_bounds.is_empty() {
-        quote! { impl fmt::Debug for #struct_ident }
+    let impl_tt = if generic_idents.is_empty() {
+        quote! { impl core::fmt::Debug for #struct_ident }
     } else {
         let (impl_generics, type_generics, _) = input.generics.split_for_impl();
-        quote! {
-            impl #impl_generics fmt::Debug for #struct_ident #type_generics where
-                #(#trait_bounds),*
+        if !trait_bounds.is_empty() {
+            quote! {
+                impl #impl_generics core::fmt::Debug for #struct_ident #type_generics where
+                    #(#trait_bounds),*
+            }
+        } else {
+            quote! {
+                impl #impl_generics core::fmt::Debug for #struct_ident #type_generics
+            }
         }
     };
 
     let output = quote! {
-        use core::fmt;
 
         #impl_tt {
-            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), core::fmt::Error> {
+            fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> Result<(), core::fmt::Error> {
                 f.debug_struct(#ident_as_str)
                     #(#field_formatters)*
                     .finish()
