@@ -37,17 +37,14 @@ fn handle_field(
                 }
             }
         }
-        match &field.ty {
-            Type::Path(ty_path) => {
-                for (idx, ty_seg) in ty_path.path.segments.iter().enumerate() {
-                    if idx == 0 {
-                        if let PathArguments::AngleBracketed(gen_args) = &ty_seg.arguments {
-                            handle_generic_args(ty_seg, gen_args, generic_idents);
-                        }
+        if let Type::Path(ty_path) = &field.ty {
+            for (idx, ty_seg) in ty_path.path.segments.iter().enumerate() {
+                if idx == 0 {
+                    if let PathArguments::AngleBracketed(gen_args) = &ty_seg.arguments {
+                        handle_generic_args(ty_seg, gen_args, generic_idents);
                     }
                 }
             }
-            _ => {}
         }
         let fident_str = fident.to_string();
         if let Some(modifier) = field_modifier {
@@ -72,8 +69,10 @@ fn handle_generic_args(
         if idx == 0 {
             if let GenericArgument::Type(Type::Path(generic_path)) = arg {
                 let mut detected_phantom_data = false;
+                let mut first_generic = None;
                 for (idx, gen_type) in generic_path.path.segments.iter().enumerate() {
                     if idx == 0 {
+                        first_generic = Some(&gen_type.ident);
                         // Common special case: Do not emit trait bound T: Debug if T is only used
                         // inside PhantomData
                         if ty_seg.ident == "PhantomData"
@@ -83,9 +82,11 @@ fn handle_generic_args(
                                 TraitBoundCfg::NoTraitBoundGeneration;
                             detected_phantom_data = true;
                         }
-                    } else if idx == 1 {
-                        dbg!("Detected associated type");
-                        if !detected_phantom_data {}
+                    } else if idx == 1 && !detected_phantom_data {
+                        *generic_idents
+                            .get_mut(first_generic.unwrap())
+                            .expect("Generic not found in generic map") =
+                            TraitBoundCfg::CustomBound(generic_path.clone());
                     }
                 }
             }
