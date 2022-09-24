@@ -3,19 +3,20 @@ use quote::quote;
 use std::collections::HashMap;
 use syn::spanned::Spanned;
 use syn::{
-    parse_macro_input, Data, DeriveInput, Field, GenericArgument, GenericParam, Lit, Meta,
-    PathArguments, Type,
+    parse_macro_input, AngleBracketedGenericArguments, Data, DeriveInput, Field, GenericArgument,
+    GenericParam, Lit, Meta, PathArguments, PathSegment, Type,
 };
 
-#[derive(Default)]
-struct GenericsInfo {
-    no_trait_bound_generation: bool,
+enum TraitBoundCfg {
+    Default,
+    NoTraitBoundGeneration,
+    CustomBound(syn::TypePath),
 }
 
 fn handle_field(
     field: &Field,
     field_formatters: &mut Vec<TokenStream>,
-    generic_idents: &mut HashMap<Ident, GenericsInfo>,
+    generic_idents: &mut HashMap<Ident, TraitBoundCfg>,
 ) -> syn::Result<()> {
     if let Some(fident) = &field.ident {
         let mut field_modifier = None;
@@ -38,23 +39,10 @@ fn handle_field(
         }
         match &field.ty {
             Type::Path(ty_path) => {
-                if let Some(ty_seg) = ty_path.path.segments.first() {
-                    // Common special case: Do not emit trait bound T: Debug if T is only used
-                    // inside PhantomData
-                    if ty_seg.ident == "PhantomData" {
+                for (idx, ty_seg) in ty_path.path.segments.iter().enumerate() {
+                    if idx == 0 {
                         if let PathArguments::AngleBracketed(gen_args) = &ty_seg.arguments {
-                            for arg in &gen_args.args {
-                                if let GenericArgument::Type(Type::Path(generic_path)) = arg {
-                                    if let Some(generic_type) = generic_path.path.segments.first() {
-                                        if generic_idents.contains_key(&generic_type.ident) {
-                                            generic_idents
-                                                .get_mut(&generic_type.ident)
-                                                .unwrap()
-                                                .no_trait_bound_generation = true;
-                                        }
-                                    }
-                                }
-                            }
+                            handle_generic_args(ty_seg, gen_args, generic_idents);
                         }
                     }
                 }
@@ -75,6 +63,35 @@ fn handle_field(
     Ok(())
 }
 
+fn handle_generic_args(
+    ty_seg: &PathSegment,
+    gen_args: &AngleBracketedGenericArguments,
+    generic_idents: &mut HashMap<Ident, TraitBoundCfg>,
+) {
+    for (idx, arg) in gen_args.args.iter().enumerate() {
+        if idx == 0 {
+            if let GenericArgument::Type(Type::Path(generic_path)) = arg {
+                let mut detected_phantom_data = false;
+                for (idx, gen_type) in generic_path.path.segments.iter().enumerate() {
+                    if idx == 0 {
+                        // Common special case: Do not emit trait bound T: Debug if T is only used
+                        // inside PhantomData
+                        if ty_seg.ident == "PhantomData"
+                            && generic_idents.contains_key(&gen_type.ident)
+                        {
+                            *generic_idents.get_mut(&gen_type.ident).unwrap() =
+                                TraitBoundCfg::NoTraitBoundGeneration;
+                            detected_phantom_data = true;
+                        }
+                    } else if idx == 1 {
+                        dbg!("Detected associated type");
+                        if !detected_phantom_data {}
+                    }
+                }
+            }
+        }
+    }
+}
 #[proc_macro_derive(CustomDebug, attributes(debug))]
 pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
@@ -92,7 +109,7 @@ pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 .to_compile_error()
                 .into();
         };
-        generic_idents.insert(gen_ident.clone(), GenericsInfo::default());
+        generic_idents.insert(gen_ident.clone(), TraitBoundCfg::Default);
     }
 
     match input.data {
@@ -113,10 +130,16 @@ pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let mut trait_bounds = Vec::new();
     if !generic_idents.is_empty() {
         for (ident, info) in &generic_idents {
-            if !info.no_trait_bound_generation {
-                trait_bounds.push(quote! {
-                   #ident: core::fmt::Debug
-                });
+            match info {
+                TraitBoundCfg::Default => {
+                    trait_bounds.push(quote! {
+                        #ident: core::fmt::Debug
+                    });
+                }
+                TraitBoundCfg::NoTraitBoundGeneration => {}
+                TraitBoundCfg::CustomBound(custom_type) => trait_bounds.push(quote! {
+                    #custom_type: core::fmt::Debug
+                }),
             }
         }
     }
