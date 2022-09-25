@@ -124,6 +124,7 @@ pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         }
     };
 
+    dbg!("Impl TT: {}", &impl_tt);
     let output = quote! {
 
         #impl_tt {
