@@ -1,5 +1,5 @@
 use proc_macro2::{Ident, TokenStream};
-use quote::{quote, ToTokens};
+use quote::quote;
 use std::collections::HashMap;
 use syn::spanned::Spanned;
 use syn::{
@@ -36,7 +36,6 @@ pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                                         Ok(tt) => tt,
                                         Err(e) => return e.into_compile_error().into(),
                                     };
-                                    dbg!("Lit as TT: {}", &lit_as_tt);
                                     bound_override_on_struct = Some(quote! { #lit_as_tt });
                                 }
                             }
@@ -87,11 +86,6 @@ pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let mut trait_bounds = Vec::new();
     if !generic_idents.is_empty() {
         for (ident, info) in &generic_idents {
-            let mut push_custom_path = |custom_ty_path| {
-                trait_bounds.push(quote! {
-                   #custom_ty_path: core::fmt::Debug
-                })
-            };
             match info {
                 TraitBoundCfg::Default => {
                     trait_bounds.push(quote! {
@@ -99,11 +93,11 @@ pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                     });
                 }
                 TraitBoundCfg::NoTraitBoundGeneration => {}
+                TraitBoundCfg::CustomBound(custom_ty_path) => trait_bounds.push(quote! {
+                    #custom_ty_path: core::fmt::Debug
+                }),
                 TraitBoundCfg::BoundOverride(custom_ty_path) => {
-                    push_custom_path(*custom_ty_path);
-                }
-                TraitBoundCfg::CustomBound(custom_ty_path) => {
-                    push_custom_path(&custom_ty_path.to_token_stream());
+                    trait_bounds.push(quote! { #custom_ty_path});
                 }
             }
         }
@@ -124,7 +118,6 @@ pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         }
     };
 
-    dbg!("Impl TT: {}", &impl_tt);
     let output = quote! {
 
         #impl_tt {
