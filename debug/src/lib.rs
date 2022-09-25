@@ -32,9 +32,12 @@ pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                         if let Some(attr_path_seg) = meta_nv.path.segments.first() {
                             if attr_path_seg.ident == "bound" {
                                 if let Lit::Str(lit_str) = &meta_nv.lit {
-                                    dbg!("Found lit string: {}", lit_str);
-                                    let lit_as_str = lit_str.to_token_stream();
-                                    bound_override_on_struct = Some(quote! { #lit_as_str });
+                                    let lit_as_tt: TokenStream = match lit_str.parse() {
+                                        Ok(tt) => tt,
+                                        Err(e) => return e.into_compile_error().into(),
+                                    };
+                                    dbg!("Lit as TT: {}", &lit_as_tt);
+                                    bound_override_on_struct = Some(quote! { #lit_as_tt });
                                 }
                             }
                         }
