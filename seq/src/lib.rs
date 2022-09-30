@@ -77,7 +77,7 @@ fn gen_output(input: SeqInfo) -> syn::Result<TokenStream> {
         let (_, next) = current_cursor.token_tree().unwrap();
         current_cursor = next;
     }
-    if !inner_repitition_found {
+    Ok(if !inner_repitition_found {
         for next_num in start..end {
             current_cursor = tok_buf.begin();
             let mut tt_collector = TtCollectorDefault::new(&input.loop_ident, next_num);
@@ -86,11 +86,16 @@ fn gen_output(input: SeqInfo) -> syn::Result<TokenStream> {
             }
             stream_repititions.push(tt_collector.consume());
         }
-    }
-    let output = quote! {
-       #(#stream_repititions)*
-    };
-    Ok(output)
+        quote! {
+            #(#stream_repititions)*
+        }
+    } else {
+        let mut tt_collector = TtCollectorInnerReps::new(&input.loop_ident, start, end);
+        while !current_cursor.eof() {
+            // TODO: Implement
+        }
+        quote! {}
+    })
 }
 
 impl<'a> TtCollectorBase<'a> {
@@ -171,5 +176,19 @@ impl<'a> TtCollectorDefault<'a> {
         let mut group_token = Group::new(delim, group_tt_collector.consume());
         group_token.set_span(gspan);
         self.base.collected_tokens.push(group_token.into());
+    }
+}
+
+impl<'a> TtCollectorInnerReps<'a> {
+    fn new(loop_ident: &'a Ident, start: usize, end: usize) -> Self {
+        Self {
+            base: TtCollectorBase::new(loop_ident),
+            start,
+            end
+        }
+    }
+
+    fn consume(self) -> TokenStream {
+        self.base.consume()
     }
 }
