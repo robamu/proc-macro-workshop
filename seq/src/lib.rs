@@ -1,5 +1,7 @@
-use proc_macro2::{Group, Span, TokenStream, TokenTree};
+use proc_macro2::Delimiter::{Brace, Bracket, Parenthesis};
+use proc_macro2::{Delimiter, Group, Span, TokenStream, TokenTree};
 use quote::quote;
+use syn::buffer::{Cursor, TokenBuffer};
 use syn::parse::{Parse, ParseStream};
 use syn::{braced, parse_macro_input, Ident, LitInt, Token};
 
@@ -14,8 +16,6 @@ struct TtCollector<'a> {
     collected_tokens: Vec<TokenTree>,
     loop_ident: &'a Ident,
     current_index: usize,
-    last_ident_for_tilde_check: Option<Ident>,
-    ident_and_tilde_found: bool,
 }
 
 impl Parse for SeqInfo {
@@ -48,18 +48,37 @@ pub fn seq(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 fn gen_output(input: SeqInfo) -> syn::Result<TokenStream> {
     let start = input.lit_start.base10_parse::<usize>()?;
     let end = input.lit_end.base10_parse::<usize>()?;
-    //dbg!("Content: {}", &input.content);
-    let mut tt_repititions = Vec::new();
-    for next_num in start..end {
-        let content_copy = input.content.clone();
-        let mut tt_collector = TtCollector::new(next_num, &input.loop_ident);
-        for ref tt in content_copy {
-            tt_collector.parse_next_tt(tt);
+    // dbg!("Content: {}", &input.content);
+    let mut stream_repititions = Vec::new();
+    // We meed to check the whole content for the the inner repition pattern #(...)*.
+    // If this pattern is found, we need to repeat the inner repitition instead of repeating the
+    // whole content. The TokenBuffer is suited for this task
+    let tok_buf = TokenBuffer::new2(input.content);
+    let mut current_cursor = Cursor::empty();
+    let mut inner_repitition_found = false;
+
+    while !current_cursor.eof() {
+        if let Some((punct, _)) = current_cursor.punct() {
+            if punct.as_char() == '#' && current_cursor.group(Bracket).is_some() {
+                inner_repitition_found = true;
+                break;
+            }
         }
-        tt_repititions.push(tt_collector.consume());
+        let (_, next) = current_cursor.token_tree().unwrap();
+        current_cursor = next;
+    }
+    if !inner_repitition_found {
+        for next_num in start..end {
+            current_cursor = tok_buf.begin();
+            let mut tt_collector = TtCollector::new(next_num, &input.loop_ident);
+            while !current_cursor.eof() {
+                tt_collector.handle_cursor(&mut current_cursor);
+            }
+            stream_repititions.push(tt_collector.consume());
+        }
     }
     let output = quote! {
-       #(#tt_repititions)*
+       #(#stream_repititions)*
     };
     Ok(output)
 }
@@ -70,85 +89,64 @@ impl<'a> TtCollector<'a> {
             collected_tokens: Vec::new(),
             current_index,
             loop_ident,
-            last_ident_for_tilde_check: None,
-            ident_and_tilde_found: false,
         }
+    }
+
+    fn handle_cursor(&mut self, current_cursor: &mut Cursor) {
+        if let Some((ident, next_cursor)) = current_cursor.ident() {
+            if &ident == self.loop_ident {
+                let lit_int = LitInt::new(&self.current_index.to_string(), Span::call_site());
+                self.collected_tokens.push(lit_int.token().into());
+                *current_cursor = next_cursor;
+                return;
+            }
+        }
+        if let Some((punct, next_cursor)) = current_cursor.punct() {
+            if punct.as_char() == '~' {
+                if let Some((ident, next_cursor)) = next_cursor.ident() {
+                    if &ident == self.loop_ident {
+                        if let Some(TokenTree::Ident(prefix)) = self.collected_tokens.last() {
+                            let concat_str = prefix.to_string() + &self.current_index.to_string();
+                            // Need to pop the last ident, will be replaced by completely new ident
+                            self.collected_tokens.pop();
+                            self.collected_tokens
+                                .push(Ident::new(&concat_str, Span::call_site()).into());
+                            *current_cursor = next_cursor;
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+        if let Some((mut group_cursor, gspan, next_cursor)) = current_cursor.group(Parenthesis) {
+            self.handle_group_cursor(Parenthesis, &mut group_cursor, gspan);
+            *current_cursor = next_cursor;
+            return;
+        }
+        if let Some((mut group_cursor, gspan, next_cursor)) = current_cursor.group(Brace) {
+            self.handle_group_cursor(Brace, &mut group_cursor, gspan);
+            *current_cursor = next_cursor;
+            return;
+        }
+        let (tt, next_cursor) = current_cursor
+            .token_tree()
+            .expect("Cursor parsing configuration error. Reached unexpected EOF");
+        // dbg!("Pushing TT {}", &tt);
+        self.collected_tokens.push(tt);
+        *current_cursor = next_cursor;
+    }
+
+    fn handle_group_cursor(&mut self, delim: Delimiter, group_cursor: &mut Cursor, gspan: Span) {
+        let mut group_tt_collector = TtCollector::new(self.current_index, self.loop_ident);
+        while !group_cursor.eof() {
+            group_tt_collector.handle_cursor(group_cursor);
+        }
+        let mut group_token = Group::new(delim, group_tt_collector.consume());
+        group_token.set_span(gspan);
+        self.collected_tokens.push(group_token.into());
     }
 
     fn consume(self) -> TokenStream {
         TokenStream::from_iter(self.collected_tokens)
-    }
-
-    fn push_last_ident(&mut self) {
-        if let Some(ident) = self.last_ident_for_tilde_check.take() {
-            self.collected_tokens.push(ident.into());
-        }
-    }
-
-    /// This function works recursively when a group is found.
-    /// This function collects token trees but might replace parts of the passed token trees
-    /// depending on certain rules:
-    ///
-    ///  1. An isolated loop identifier in replaced
-    ///  2. A sequence consisting of an identifier, the tilde character and the loop identifier will
-    ///     be replaced with a concatenated identifier, e.g. f~N for N 0..2 will be replaced by
-    ///     f1, f2, f3
-    fn parse_next_tt(&mut self, tt: &TokenTree) {
-        let mut do_push_last_ident = true;
-        let tt_to_push = match tt {
-            TokenTree::Group(g) => {
-                let mut tt_collector = TtCollector::new(self.current_index, self.loop_ident);
-                for ref tt in g.stream() {
-                    tt_collector.parse_next_tt(tt);
-                }
-                let mut new_group = Group::new(g.delimiter(), tt_collector.consume());
-                new_group.set_span(g.span());
-                Some(new_group.into())
-            }
-            TokenTree::Ident(i) => {
-                if i == self.loop_ident {
-                    // This is the condition <Ident>~<LoopIdent> where the whole block should
-                    // be expanded to a single concatenated identifier.
-                    if self.ident_and_tilde_found {
-                        let ident_str = self.last_ident_for_tilde_check.take().unwrap().to_string()
-                            + &self.current_index.to_owned().to_string();
-                        self.ident_and_tilde_found = false;
-                        Some(Ident::new(&ident_str, Span::call_site()).into())
-                    } else {
-                        // Regular loop identifier
-                        let lit_int = LitInt::new(&self.current_index.to_string(), tt.span());
-                        Some(lit_int.token().into())
-                    }
-                } else {
-                    // Push old identifier if there is one, but do not push the current one
-                    if let Some(last_ident) = self.last_ident_for_tilde_check.replace(i.clone()) {
-                        self.collected_tokens.push(last_ident.into());
-                    }
-                    do_push_last_ident = false;
-                    None
-                }
-            }
-            TokenTree::Punct(p) => match p.as_char() {
-                '~' => {
-                    // Check if the last TT was an ident. If this is so, and the next TT
-                    // is the loop identifier, we need to concatenate all three of them
-                    if self.last_ident_for_tilde_check.is_some() {
-                        self.ident_and_tilde_found = true;
-                        do_push_last_ident = false;
-                        None
-                    } else {
-                        Some(tt.clone())
-                    }
-                }
-                _ => Some(tt.clone()),
-            },
-            _ => Some(tt.clone()),
-        };
-        if do_push_last_ident {
-            self.push_last_ident();
-        }
-        if let Some(tt_to_push) = tt_to_push {
-            self.collected_tokens.push(tt_to_push)
-        }
     }
 }
