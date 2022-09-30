@@ -12,10 +12,20 @@ struct SeqInfo {
     content: TokenStream,
 }
 
-struct TtCollector<'a> {
+struct TtCollectorBase<'a> {
     collected_tokens: Vec<TokenTree>,
     loop_ident: &'a Ident,
+}
+
+struct TtCollectorDefault<'a> {
+    base: TtCollectorBase<'a>,
     current_index: usize,
+}
+
+struct TtCollectorInnerReps<'a> {
+    base: TtCollectorBase<'a>,
+    start: usize,
+    end: usize,
 }
 
 impl Parse for SeqInfo {
@@ -70,7 +80,7 @@ fn gen_output(input: SeqInfo) -> syn::Result<TokenStream> {
     if !inner_repitition_found {
         for next_num in start..end {
             current_cursor = tok_buf.begin();
-            let mut tt_collector = TtCollector::new(next_num, &input.loop_ident);
+            let mut tt_collector = TtCollectorDefault::new(&input.loop_ident, next_num);
             while !current_cursor.eof() {
                 tt_collector.handle_cursor(&mut current_cursor);
             }
@@ -83,20 +93,35 @@ fn gen_output(input: SeqInfo) -> syn::Result<TokenStream> {
     Ok(output)
 }
 
-impl<'a> TtCollector<'a> {
-    fn new(current_index: usize, loop_ident: &'a Ident) -> Self {
+impl<'a> TtCollectorBase<'a> {
+    fn new(loop_ident: &'a Ident) -> Self {
         Self {
             collected_tokens: Vec::new(),
-            current_index,
             loop_ident,
         }
     }
 
+    fn consume(self) -> TokenStream {
+        TokenStream::from_iter(self.collected_tokens)
+    }
+}
+
+impl<'a> TtCollectorDefault<'a> {
+    fn new(loop_ident: &'a Ident, current_index: usize) -> Self {
+        Self {
+            base: TtCollectorBase::new(loop_ident),
+            current_index,
+        }
+    }
+    fn consume(self) -> TokenStream {
+        self.base.consume()
+    }
+
     fn handle_cursor(&mut self, current_cursor: &mut Cursor) {
         if let Some((ident, next_cursor)) = current_cursor.ident() {
-            if &ident == self.loop_ident {
+            if &ident == self.base.loop_ident {
                 let lit_int = LitInt::new(&self.current_index.to_string(), Span::call_site());
-                self.collected_tokens.push(lit_int.token().into());
+                self.base.collected_tokens.push(lit_int.token().into());
                 *current_cursor = next_cursor;
                 return;
             }
@@ -104,12 +129,13 @@ impl<'a> TtCollector<'a> {
         if let Some((punct, next_cursor)) = current_cursor.punct() {
             if punct.as_char() == '~' {
                 if let Some((ident, next_cursor)) = next_cursor.ident() {
-                    if &ident == self.loop_ident {
-                        if let Some(TokenTree::Ident(prefix)) = self.collected_tokens.last() {
+                    if &ident == self.base.loop_ident {
+                        if let Some(TokenTree::Ident(prefix)) = self.base.collected_tokens.last() {
                             let concat_str = prefix.to_string() + &self.current_index.to_string();
                             // Need to pop the last ident, will be replaced by completely new ident
-                            self.collected_tokens.pop();
-                            self.collected_tokens
+                            self.base.collected_tokens.pop();
+                            self.base
+                                .collected_tokens
                                 .push(Ident::new(&concat_str, Span::call_site()).into());
                             *current_cursor = next_cursor;
                             return;
@@ -132,21 +158,18 @@ impl<'a> TtCollector<'a> {
             .token_tree()
             .expect("Cursor parsing configuration error. Reached unexpected EOF");
         // dbg!("Pushing TT {}", &tt);
-        self.collected_tokens.push(tt);
+        self.base.collected_tokens.push(tt);
         *current_cursor = next_cursor;
     }
 
     fn handle_group_cursor(&mut self, delim: Delimiter, group_cursor: &mut Cursor, gspan: Span) {
-        let mut group_tt_collector = TtCollector::new(self.current_index, self.loop_ident);
+        let mut group_tt_collector =
+            TtCollectorDefault::new(self.base.loop_ident, self.current_index);
         while !group_cursor.eof() {
             group_tt_collector.handle_cursor(group_cursor);
         }
         let mut group_token = Group::new(delim, group_tt_collector.consume());
         group_token.set_span(gspan);
-        self.collected_tokens.push(group_token.into());
-    }
-
-    fn consume(self) -> TokenStream {
-        TokenStream::from_iter(self.collected_tokens)
+        self.base.collected_tokens.push(group_token.into());
     }
 }
