@@ -86,6 +86,13 @@ impl<'a> TtCollector<'a> {
     }
 
     /// This function works recursively when a group is found.
+    /// This function collects token trees but might replace parts of the passed token trees
+    /// depending on certain rules:
+    ///
+    ///  1. An isolated loop identifier in replaced
+    ///  2. A sequence consisting of an identifier, the tilde character and the loop identifier will
+    ///     be replaced with a concatenated identifier, e.g. f~N for N 0..2 will be replaced by
+    ///     f1, f2, f3
     fn parse_next_tt(&mut self, tt: &TokenTree) {
         let mut do_push_last_ident = true;
         let tt_to_push = match tt {
@@ -100,12 +107,15 @@ impl<'a> TtCollector<'a> {
             }
             TokenTree::Ident(i) => {
                 if i == self.loop_ident {
+                    // This is the condition <Ident>~<LoopIdent> where the whole block should
+                    // be expanded to a single concatenated identifier.
                     if self.ident_and_tilde_found {
                         let ident_str = self.last_ident_for_tilde_check.take().unwrap().to_string()
                             + &self.current_index.to_owned().to_string();
                         self.ident_and_tilde_found = false;
                         Some(Ident::new(&ident_str, Span::call_site()).into())
                     } else {
+                        // Regular loop identifier
                         let lit_int = LitInt::new(&self.current_index.to_string(), tt.span());
                         Some(lit_int.token().into())
                     }
@@ -120,6 +130,8 @@ impl<'a> TtCollector<'a> {
             }
             TokenTree::Punct(p) => match p.as_char() {
                 '~' => {
+                    // Check if the last TT was an ident. If this is so, and the next TT
+                    // is the loop identifier, we need to concatenate all three of them
                     if self.last_ident_for_tilde_check.is_some() {
                         self.ident_and_tilde_found = true;
                         do_push_last_ident = false;
