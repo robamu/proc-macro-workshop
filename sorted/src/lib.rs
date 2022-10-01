@@ -4,6 +4,5 @@ use proc_macro::TokenStream;
 pub fn sorted(args: TokenStream, input: TokenStream) -> TokenStream {
     let _ = args;
     let _ = input;
-
-    unimplemented!()
+    TokenStream::new().into()
 }
