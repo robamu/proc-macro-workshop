@@ -9,6 +9,7 @@ struct SeqInfo {
     loop_ident: Ident,
     lit_start: syn::LitInt,
     lit_end: syn::LitInt,
+    inclusive_upper_range: bool,
     content: TokenStream,
 }
 
@@ -34,6 +35,7 @@ impl Parse for SeqInfo {
         input.parse::<Token![in]>()?;
         let lit_start = input.parse()?;
         input.parse::<Token![..]>()?;
+        let inclusive_upper_range = input.parse::<Token![=]>().is_ok();
         let lit_end = input.parse()?;
         let content;
         braced!(content in input);
@@ -42,6 +44,7 @@ impl Parse for SeqInfo {
             loop_ident,
             lit_start,
             lit_end,
+            inclusive_upper_range,
             content,
         })
     }
@@ -57,7 +60,10 @@ pub fn seq(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
 fn gen_output(input: SeqInfo) -> syn::Result<TokenStream> {
     let start = input.lit_start.base10_parse::<usize>()?;
-    let end = input.lit_end.base10_parse::<usize>()?;
+    let mut end = input.lit_end.base10_parse::<usize>()?;
+    if input.inclusive_upper_range {
+        end += 1;
+    }
     // dbg!("Content: {}", &input.content);
     let mut stream_repititions = Vec::new();
     // We meed to check the whole content for the the inner repition pattern #(...)*.
