@@ -6,20 +6,15 @@
 // To run the code:
 //     $ cargo run
 
-use seq::seq;
+use sorted::sorted;
 
-seq!(N in 0..16 {
-    #[derive(Copy, Clone, PartialEq, Debug)]
-    enum Interrupt {
-        #(
-            Irq~N,
-        )*
-    }
-});
-
-fn main() {
-    let interrupt = Interrupt::Irq8;
-
-    assert_eq!(interrupt as u8, 8);
-    assert_eq!(interrupt, Interrupt::Irq8);
+#[sorted]
+pub enum Conference {
+    RustBeltRust,
+    RustConf,
+    RustFest,
+    RustLatam,
+    RustRush,
 }
+
+fn main() {}
