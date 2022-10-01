@@ -183,10 +183,10 @@ impl<'a> TtCollectorDefault<'a> {
                         if let Some(TokenTree::Ident(prefix)) = self.base.collected_tokens.last() {
                             let concat_str = prefix.to_string() + &self.current_index.to_string();
                             // Need to pop the last ident, will be replaced by completely new ident
-                            self.base.collected_tokens.pop();
+                            let prefix = self.base.collected_tokens.pop().unwrap();
                             self.base
                                 .collected_tokens
-                                .push(Ident::new(&concat_str, Span::call_site()).into());
+                                .push(Ident::new(&concat_str, prefix.span()).into());
                             *current_cursor = next_cursor;
                             return;
                         }
