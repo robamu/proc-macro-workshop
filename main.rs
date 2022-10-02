@@ -6,15 +6,22 @@
 // To run the code:
 //     $ cargo run
 
+#[allow(dead_code)]
 use sorted::sorted;
 
+use std::env::VarError;
+use std::error::Error as StdError;
+use std::fmt;
+use std::io;
+use std::str::Utf8Error;
+
 #[sorted]
-pub enum Conference {
-    RustBeltRust,
-    RustConf,
-    RustFest,
-    RustLatam,
-    RustRush,
+pub enum Error {
+    Fmt(fmt::Error),
+    Io(io::Error),
+    Utf8(Utf8Error),
+    Var(VarError),
+    Dyn(Box<dyn StdError>),
 }
 
 fn main() {}
