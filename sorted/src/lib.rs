@@ -1,5 +1,7 @@
 use proc_macro2::{Span, TokenStream};
 use quote::ToTokens;
+use std::collections::BTreeSet;
+use syn::spanned::Spanned;
 use syn::{parse_macro_input, AttributeArgs, Item};
 
 #[proc_macro_attribute]
@@ -14,9 +16,24 @@ pub fn sorted(
         .into()
 }
 
-fn process_input(args: AttributeArgs, input: Item) -> syn::Result<TokenStream> {
-    match input {
-        Item::Enum(_) => {}
+fn process_input(_args: AttributeArgs, input: Item) -> syn::Result<TokenStream> {
+    let mut variants_set = BTreeSet::new();
+    match &input {
+        Item::Enum(e) => {
+            for variant in &e.variants {
+                let variant_string = variant.ident.to_string();
+                let rev_iter = variants_set.iter().rev();
+                if let Some(last_element) = rev_iter.last() {
+                    if variant_string < *last_element {
+                        return Err(syn::Error::new(
+                            variant.span(),
+                            format!("{} should sort before {}", variant_string, last_element),
+                        ));
+                    }
+                }
+                variants_set.insert(variant_string);
+            }
+        }
         _ => {
             return Err(syn::Error::new(
                 Span::call_site(),
