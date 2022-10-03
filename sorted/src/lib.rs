@@ -1,9 +1,11 @@
 use proc_macro2::{Span, TokenStream};
 use quote::ToTokens;
 use std::collections::BTreeSet;
+use std::iter::Peekable;
+use syn::punctuated::Iter;
 use syn::spanned::Spanned;
 use syn::visit_mut::VisitMut;
-use syn::{parse_macro_input, Arm, AttributeArgs, ExprMatch, Item, ItemFn, Meta, Pat};
+use syn::{parse_macro_input, Arm, AttributeArgs, ExprMatch, Item, ItemFn, Meta, Pat, PathSegment};
 
 #[proc_macro_attribute]
 pub fn sorted(
@@ -12,7 +14,7 @@ pub fn sorted(
 ) -> proc_macro::TokenStream {
     let args = parse_macro_input!(args as AttributeArgs);
     let input_item = parse_macro_input!(input as Item);
-    let mut output_ts = input_item.clone().to_token_stream();
+    let mut output_ts = input_item.to_token_stream();
     if let Err(e) = process_input(args, &input_item) {
         output_ts.extend(e.into_compile_error())
     }
@@ -104,22 +106,64 @@ impl VisitMut for FunctionSortedMatchParser {
 }
 
 impl FunctionSortedMatchParser {
+    fn check_next_arm_ident(
+        &mut self,
+        next_ident_as_str: String,
+        set: &mut BTreeSet<String>,
+        error_tokens: TokenStream,
+    ) {
+        if !next_ident_as_str.is_empty() {
+            if let Some(last_element) = set.iter().rev().last() {
+                if &next_ident_as_str < last_element {
+                    self.syn_errors.push(syn::Error::new_spanned(
+                        error_tokens,
+                        format!("{} should sort before {}", next_ident_as_str, last_element),
+                    ))
+                }
+            }
+            set.insert(next_ident_as_str);
+        }
+    }
     fn check_match_arms_sorted(&mut self, arms: &Vec<Arm>) {
         let mut match_arm_idents_set = BTreeSet::new();
-        for arm in arms {
-            if let Pat::TupleStruct(pat_ts) = &arm.pat {
-                if let Some(path_seg) = pat_ts.path.segments.first() {
-                    let ident_as_str = path_seg.ident.to_string();
-                    if let Some(last_element) = match_arm_idents_set.iter().rev().last() {
-                        if ident_as_str < *last_element {
-                            self.syn_errors.push(syn::Error::new(
-                                path_seg.span(),
-                                format!("{} should sort before {}", ident_as_str, *last_element),
-                            ))
-                        }
-                    }
-                    match_arm_idents_set.insert(ident_as_str);
+        let full_path_from_segments = |mut iter: Peekable<Iter<PathSegment>>| {
+            let mut full_path_str = String::new();
+            while let Some(pseg) = iter.next() {
+                full_path_str += &pseg.ident.to_string();
+                if iter.peek().is_some() {
+                    full_path_str += "::";
                 }
+            }
+            full_path_str
+        };
+        for arm in arms {
+            match &arm.pat {
+                Pat::Struct(s) => {
+                    let full_path_str = full_path_from_segments(s.path.segments.iter().peekable());
+                    self.check_next_arm_ident(
+                        full_path_str,
+                        &mut match_arm_idents_set,
+                        s.path.to_token_stream(),
+                    );
+                }
+                Pat::TupleStruct(pat_ts) => {
+                    let full_path_str =
+                        full_path_from_segments(pat_ts.path.segments.iter().peekable());
+                    self.check_next_arm_ident(
+                        full_path_str,
+                        &mut match_arm_idents_set,
+                        pat_ts.path.to_token_stream(),
+                    );
+                }
+                Pat::Path(p) => {
+                    let full_path_str = full_path_from_segments(p.path.segments.iter().peekable());
+                    self.check_next_arm_ident(
+                        full_path_str,
+                        &mut match_arm_idents_set,
+                        p.path.to_token_stream(),
+                    );
+                }
+                _ => (),
             }
         }
     }
