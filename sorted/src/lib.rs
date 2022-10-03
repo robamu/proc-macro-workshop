@@ -124,7 +124,7 @@ impl FunctionSortedMatchParser {
             set.insert(next_ident_as_str);
         }
     }
-    fn check_match_arms_sorted(&mut self, arms: &Vec<Arm>) {
+    fn check_match_arms_sorted(&mut self, arms: &[Arm]) {
         let mut match_arm_idents_set = BTreeSet::new();
         let full_path_from_segments = |mut iter: Peekable<Iter<PathSegment>>| {
             let mut full_path_str = String::new();
@@ -136,8 +136,17 @@ impl FunctionSortedMatchParser {
             }
             full_path_str
         };
-        for arm in arms {
+        let mut arm_iter = arms.iter().peekable();
+        while let Some(arm) = arm_iter.next() {
             match &arm.pat {
+                Pat::Ident(ident) => {
+                    let full_path_str = ident.ident.to_string();
+                    self.check_next_arm_ident(
+                        full_path_str,
+                        &mut match_arm_idents_set,
+                        ident.to_token_stream(),
+                    );
+                }
                 Pat::Struct(s) => {
                     let full_path_str = full_path_from_segments(s.path.segments.iter().peekable());
                     self.check_next_arm_ident(
@@ -163,7 +172,21 @@ impl FunctionSortedMatchParser {
                         p.path.to_token_stream(),
                     );
                 }
-                _ => (),
+                Pat::Wild(wildcard) => {
+                    if arm_iter.peek().is_some() {
+                        self.syn_errors.push(syn::Error::new(
+                            wildcard.span(),
+                            "wildcard pattern must be last entry in match",
+                        ));
+                    }
+                }
+                _ => {
+                    self.syn_errors.push(syn::Error::new_spanned(
+                        arm.pat.to_token_stream(),
+                        "unsupported by #[sorted]",
+                    ));
+                    break;
+                }
             }
         }
     }
