@@ -12,12 +12,14 @@ pub fn sorted(
 ) -> proc_macro::TokenStream {
     let args = parse_macro_input!(args as AttributeArgs);
     let input_item = parse_macro_input!(input as Item);
-    process_input(args, input_item)
-        .unwrap_or_else(syn::Error::into_compile_error)
-        .into()
+    let mut output_ts = input_item.clone().to_token_stream();
+    if let Err(e) = process_input(args, &input_item) {
+        output_ts.extend(e.into_compile_error())
+    }
+    output_ts.into()
 }
 
-fn process_input(_args: AttributeArgs, input: Item) -> syn::Result<TokenStream> {
+fn process_input(_args: AttributeArgs, input: &Item) -> syn::Result<TokenStream> {
     let mut variants_set = BTreeSet::new();
     match &input {
         Item::Enum(e) => {
