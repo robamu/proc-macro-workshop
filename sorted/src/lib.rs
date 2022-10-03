@@ -58,15 +58,21 @@ pub fn check(
 
 fn check_and_replace_matches_with_sort_attr(input: &mut ItemFn) -> syn::Result<TokenStream> {
     let mut fn_parser = FunctionSortedMatchParser::default();
-    fn_parser.parse_wrapper(input)?;
-    //dbg!("Input: {}", &input);
-    Ok(input.to_token_stream())
+    fn_parser.visit_item_fn_mut(input);
+    let mut output_ts = input.to_token_stream();
+    // Add syn errors converted to compile errors to the output.
+    output_ts.extend(TokenStream::from_iter(
+        fn_parser
+            .syn_errors
+            .into_iter()
+            .map(|e| e.into_compile_error()),
+    ));
+    Ok(output_ts)
 }
 
 #[derive(Default)]
 struct FunctionSortedMatchParser {
-    parse_meta_failure: Option<syn::Error>,
-    match_not_sorted: Option<syn::Error>,
+    syn_errors: Vec<syn::Error>,
 }
 
 impl VisitMut for FunctionSortedMatchParser {
@@ -76,7 +82,7 @@ impl VisitMut for FunctionSortedMatchParser {
             let meta = match attr.parse_meta() {
                 Ok(meta) => meta,
                 Err(e) => {
-                    self.parse_meta_failure = Some(e);
+                    self.syn_errors.push(e);
                     return;
                 }
             };
@@ -96,12 +102,6 @@ impl VisitMut for FunctionSortedMatchParser {
 }
 
 impl FunctionSortedMatchParser {
-    fn parse_wrapper(&mut self, i: &mut ItemFn) -> syn::Result<()> {
-        self.visit_item_fn_mut(i);
-        self.parse_meta_failure.to_owned().map_or(Ok(()), Err)?;
-        self.match_not_sorted.to_owned().map_or(Ok(()), Err)
-    }
-
     fn check_match_arms_sorted(&mut self, arms: &Vec<Arm>) {
         let mut match_arm_idents_set = BTreeSet::new();
         for arm in arms {
@@ -110,7 +110,7 @@ impl FunctionSortedMatchParser {
                     let ident_as_str = path_seg.ident.to_string();
                     if let Some(last_element) = match_arm_idents_set.iter().rev().last() {
                         if ident_as_str < *last_element {
-                            self.match_not_sorted = Some(syn::Error::new(
+                            self.syn_errors.push(syn::Error::new(
                                 path_seg.span(),
                                 format!("{} should sort before {}", ident_as_str, *last_element),
                             ))
