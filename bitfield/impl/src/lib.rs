@@ -96,15 +96,17 @@ pub fn bitfield(
             let ident_upper_case = format_ident!("OFFSET_{}", ident.to_string().to_uppercase());
             if let Type::Path(p) = &field.ty {
                 let path = p.path.clone();
-                let fully_qualified_path = quote! { <#path as Specifier> };
+                let specifier_path = quote! { <#path as Specifier> };
+                //let specifier_path = quote! { #path };
+
                 if let Some(previous_const) = preceeding_const {
                     const_offsets.extend(quote! {
-                        const #ident_upper_case: usize = Self::#previous_const + #fully_qualified_path::BITS;
+                        const #ident_upper_case: usize = Self::#previous_const + #specifier_path::BITS;
                     });
                     preceeding_const = Some(ident_upper_case);
                 } else {
                     const_offsets.extend(quote! {
-                        const #ident_upper_case: usize = #fully_qualified_path::BITS;
+                        const #ident_upper_case: usize = #specifier_path::BITS;
                     });
                     preceeding_const = Some(ident_upper_case);
                 }
@@ -112,10 +114,10 @@ pub fn bitfield(
                 let setter_name = format_ident!("set_{}", ident);
                 let getter_name = format_ident!("get_{}", ident);
                 setters.extend(quote! {
-                    pub fn #setter_name(&mut self, val: #fully_qualified_path::UTYPE) {}
+                    pub fn #setter_name(&mut self, val: #specifier_path::UTYPE) {}
                 });
                 getters.extend(quote! {
-                    pub fn #getter_name(&self) -> #fully_qualified_path::UTYPE {
+                    pub fn #getter_name(&self) -> #specifier_path::UTYPE {
                         0
                     }
                 })
