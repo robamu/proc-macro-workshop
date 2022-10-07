@@ -31,13 +31,46 @@ impl Parse for StructInfo {
 #[proc_macro]
 pub fn make_bitwidth_markers(_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let mut output = TokenStream::new();
-    for i in 0..MAX_BIT_WIDTH {
+    for ref i in 0..MAX_BIT_WIDTH {
+        let div = i / 8;
+        let rem = i % 8;
+        let value_type = match div {
+            0 => quote! { u8 },
+            1 => {
+                if rem == 0 {
+                    quote! { u8 }
+                } else {
+                    quote! { u16 }
+                }
+            }
+            2 => {
+                if rem == 0 {
+                    quote! { u16 }
+                } else {
+                    quote! { u32 }
+                }
+            }
+            3 => quote! { u32 },
+            4 => {
+                if rem == 0 {
+                    quote! { u32 }
+                } else {
+                    quote! { u64 }
+                }
+            }
+            _ => {
+                quote! { u64 }
+            }
+        };
         let bitwidth_ident = format_ident!("B{}", i);
+        let mask_val = 2_usize.pow(i.clone() as u32) - 1;
         output.extend(quote! {
             pub enum #bitwidth_ident {}
 
             impl Specifier for #bitwidth_ident {
                 const BITS: usize = #i;
+                const MASK: usize = #mask_val;
+                type UTYPE = #value_type;
             }
         })
     }
@@ -54,18 +87,59 @@ pub fn bitfield(
     let out_ident = &input.ident;
     let out_vis = input.vis;
     let mut path_vec = Vec::new();
+    let mut const_offsets = TokenStream::new();
+    let mut setters = TokenStream::new();
+    let mut getters = TokenStream::new();
+    let mut preceeding_const = None;
     for field in &input.fields {
-        if let Type::Path(p) = &field.ty {
-            path_vec.push(p.path.clone());
+        if let Some(ident) = &field.ident {
+            let ident_upper_case = format_ident!("OFFSET_{}", ident.to_string().to_uppercase());
+            if let Type::Path(p) = &field.ty {
+                let path = p.path.clone();
+                let fully_qualified_path = quote! { <#path as Specifier> };
+                if let Some(previous_const) = preceeding_const {
+                    const_offsets.extend(quote! {
+                        const #ident_upper_case: usize = Self::#previous_const + #fully_qualified_path::BITS;
+                    });
+                    preceeding_const = Some(ident_upper_case);
+                } else {
+                    const_offsets.extend(quote! {
+                        const #ident_upper_case: usize = #fully_qualified_path::BITS;
+                    });
+                    preceeding_const = Some(ident_upper_case);
+                }
+                path_vec.push(path);
+                let setter_name = format_ident!("set_{}", ident);
+                let getter_name = format_ident!("get_{}", ident);
+                setters.extend(quote! {
+                    pub fn #setter_name(&mut self, val: #fully_qualified_path::UTYPE) {}
+                });
+                getters.extend(quote! {
+                    pub fn #getter_name(&self) -> #fully_qualified_path::UTYPE {
+                        0
+                    }
+                })
+            }
         }
     }
-    let compile_time_bits_calculation = quote! {
-        (#(<#path_vec as Specifier>::BITS)+*) / 8
-    };
 
+    let compile_time_len = quote! {
+       (#(<#path_vec as Specifier>::BITS)+*) / 8
+    };
     let output = quote! {
         #out_vis struct #out_ident {
-            raw_data: [u8; #compile_time_bits_calculation]
+            raw_data: [u8; #compile_time_len]
+        }
+
+        impl #out_ident {
+            pub fn new() -> Self {
+                Self {
+                    raw_data: [0; #compile_time_len]
+                }
+            }
+            #const_offsets
+            #setters
+            #getters
         }
     };
     output.into()
