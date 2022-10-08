@@ -29,9 +29,7 @@ pub trait Specifier {
     }
 
     #[inline]
-    fn middle_segments(first_seg_width: usize, last_seg_width: usize) -> u8 {
-        ((Self::BITS - first_seg_width - last_seg_width) / 8) as u8
-    }
+    fn middle_segments(&self, first_seg_width: u8, last_seg_width: u8) -> u8;
 }
 
 make_bitwidth_markers!();

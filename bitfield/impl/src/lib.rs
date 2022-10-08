@@ -28,49 +28,65 @@ impl Parse for StructInfo {
     }
 }
 
+enum Width {
+    U8,
+    U16,
+    U32,
+    U64,
+}
+
 #[proc_macro]
 pub fn make_bitwidth_markers(_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let mut output = TokenStream::new();
     for ref i in 0..MAX_BIT_WIDTH {
         let div = i / 8;
         let rem = i % 8;
-        let value_type = match div {
-            0 => quote! { u8 },
+        let width = match div {
+            0 => Width::U8,
             1 => {
                 if rem == 0 {
-                    quote! { u8 }
+                    Width::U8
                 } else {
-                    quote! { u16 }
+                    Width::U16
                 }
             }
             2 => {
                 if rem == 0 {
-                    quote! { u16 }
+                    Width::U16
                 } else {
-                    quote! { u32 }
+                    Width::U32
                 }
             }
-            3 => quote! { u32 },
+            3 => Width::U32,
             4 => {
                 if rem == 0 {
-                    quote! { u32 }
+                    Width::U32
                 } else {
-                    quote! { u64 }
+                    Width::U64
                 }
             }
-            _ => {
-                quote! { u64 }
-            }
+            _ => Width::U64,
+        };
+        let type_ident = match width {
+            Width::U8 => quote! { u8 },
+            Width::U16 => quote! { u16 },
+            Width::U32 => quote! { u32 },
+            Width::U64 => quote! { u64 },
         };
         let bitwidth_ident = format_ident!("B{}", i);
         let mask_val = 2_usize.pow(i.clone() as u32) - 1;
+        // ((Self::BITS - first_seg_width - last_seg_width) / 8) as u8
         output.extend(quote! {
             pub enum #bitwidth_ident {}
 
             impl Specifier for #bitwidth_ident {
                 const BITS: usize = #i;
                 const MASK: usize = #mask_val;
-                type UTYPE = #value_type;
+                type UTYPE = #type_ident;
+
+                fn middle_segments(&self, first_seg_width: u8, last_seg_width: u8) -> u8 {
+                    0
+                }
             }
         })
     }
@@ -148,8 +164,9 @@ pub fn bitfield(
 
                         let first_seg_width = #specifier_path::first_seg_width(#scoped_offset_ident);
                         let last_seg_width = #specifier_path::last_seg_width(#scoped_offset_ident);
-                        let segs = #specifier_path::middle_segments(first_seg_width, last_seg_width);
-                        self.#ident = 0;
+                        //let segs = #specifier_path::middle_segments(first_seg_width, last_seg_width);
+                        //let last_seg = val & #specifier_path::MASK as #specifier_path::UTYPE;
+                        //self.#ident = 0;
                     }
                 });
                 getters.extend(quote! {
