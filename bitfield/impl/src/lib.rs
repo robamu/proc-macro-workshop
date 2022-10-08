@@ -78,7 +78,8 @@ pub fn make_bitwidth_markers(_input: proc_macro::TokenStream) -> proc_macro::Tok
 }
 
 /*
-Simple generic setter approach:
+This  generic setter approach is a bit overkill for many common cases, but should work for all
+special cases.
 
 0 0 0 0 0 0 0 0 | 0 0 0 0 0 0 0 0 | 0 0 0 0 0 0 0 0 | 0 0 0 0 0 0 0 0
             1 0   0 0 1 0 1 1 1 0   1 1
@@ -121,7 +122,8 @@ pub fn bitfield(
     let mut preceeding_const = None;
     for field in &input.fields {
         if let Some(ident) = &field.ident {
-            let ident_upper_case = format_ident!("OFFSET_{}", ident.to_string().to_uppercase());
+            let offset_ident = format_ident!("OFFSET_{}", ident.to_string().to_uppercase());
+            let scoped_offset_ident = quote! { Self::#offset_ident };
             if let Type::Path(p) = &field.ty {
                 let path = p.path.clone();
                 let specifier_path = quote! { <#path as Specifier> };
@@ -129,20 +131,26 @@ pub fn bitfield(
 
                 if let Some(previous_const) = preceeding_const {
                     const_offsets.extend(quote! {
-                        const #ident_upper_case: usize = Self::#previous_const + #specifier_path::BITS;
+                        const #offset_ident: usize = Self::#previous_const + #specifier_path::BITS;
                     });
-                    preceeding_const = Some(ident_upper_case);
+                    preceeding_const = Some(offset_ident.clone());
                 } else {
                     const_offsets.extend(quote! {
-                        const #ident_upper_case: usize = #specifier_path::BITS;
+                        const #offset_ident: usize = #specifier_path::BITS;
                     });
-                    preceeding_const = Some(ident_upper_case);
+                    preceeding_const = Some(offset_ident.clone());
                 }
                 path_vec.push(path);
                 let setter_name = format_ident!("set_{}", ident);
                 let getter_name = format_ident!("get_{}", ident);
                 setters.extend(quote! {
-                    pub fn #setter_name(&mut self, val: #specifier_path::UTYPE) {}
+                    pub fn #setter_name(&mut self, val: #specifier_path::UTYPE) {
+
+                        let first_seg_width = #specifier_path::first_seg_width(#scoped_offset_ident);
+                        let last_seg_width = #specifier_path::last_seg_width(#scoped_offset_ident);
+                        let segs = #specifier_path::middle_segments(first_seg_width, last_seg_width);
+                        self.#ident = 0;
+                    }
                 });
                 getters.extend(quote! {
                     pub fn #getter_name(&self) -> #specifier_path::UTYPE {
