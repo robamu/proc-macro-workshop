@@ -77,6 +77,34 @@ pub fn make_bitwidth_markers(_input: proc_macro::TokenStream) -> proc_macro::Tok
     output.into()
 }
 
+/*
+Simple generic setter approach:
+
+0 0 0 0 0 0 0 0 | 0 0 0 0 0 0 0 0 | 0 0 0 0 0 0 0 0 | 0 0 0 0 0 0 0 0
+            1 0   0 0 1 0 1 1 1 0   1 1
+
+Value: 100010111011
+Offset: 6
+Width: 12
+First Seg Width: 8 - (Offset % 8) = 2
+Last Seg Width: (Offset + Width) % 8 = 2
+Second Seg Width (Only 8 left) = 8
+
+Last Seg: Value & 0b11
+Second Seg: (Value >> LastSegWidth) & 0xff
+First Seg: (Value >> LastSegWidth + Segs * 8) & 0b11
+
+First Byte &= ~FirstSegWidth
+FirstByte |= First Seg
+
+Second Byte &= ~0xff
+SecondByte |= Second Seg
+
+ShiftToFront: 8 - Width
+
+ThirdByte &= ~ (LastSegWidth << ShiftToFront(Width))
+ThirdByte |= (LastSeg << ShiftToFront(Width))
+ */
 #[proc_macro_attribute]
 pub fn bitfield(
     args: proc_macro::TokenStream,
