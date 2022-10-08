@@ -103,7 +103,9 @@ special cases.
 Value: 100010111011
 Offset: 6
 Width: 12
+First Byte Index: Offset / 8
 First Seg Width: 8 - (Offset % 8) = 2
+Last Byte Index: (Offset + Width) / 8
 Last Seg Width: (Offset + Width) % 8 = 2
 Second Seg Width (Only 8 left) = 8
 
@@ -121,6 +123,44 @@ ShiftToFront: 8 - Width
 
 ThirdByte &= ~ (LastSegWidth << ShiftToFront(Width))
 ThirdByte |= (LastSeg << ShiftToFront(Width))
+
+0 0 0 0 0 0 0 0 | 0 0 0 0 0 0 0 0
+                          1 0 1 0
+
+Offset = 15
+FirstByteIndex = Offset / 8  => 1
+LastByteIndex = (Offset + Width) / 8 => 1
+Shift = ( 2 * 8 ) - 1 - 15 = 0
+SecondByte &= !(Mask << Shift)
+SecondByte |= (Value & Mask) << Shift
+
+0 0 0 0 0 0 0 0 | 0 0 0 0 0 0 0 0
+                      1 0 1 0
+Offset = 10
+FirstByteIndex = 1
+LastByteIndex = 1
+Shift = ((Index + 1) * 8 ) - (Offset + Width) = 2
+SecondByte &= !(Mask << Shift)
+SecondByte |= (Value & Mask) << Shift
+
+0 0 0 0 0 0 0 0 | 0 0 0 0 0 0 0 0
+          1 0 0   1 1
+
+Offset: 5
+FirstByteIndex = 0
+SecondByteIndex = 1
+First Seg Width: 8 - (Offset % 8) = 3
+Second Seg Width: (Offset + Width) % 8 = 2
+
+LastSeg = Value & SecondSegWidth
+FirstSeg = (Value >> FirstSegWidth) & FirstSegWidth
+FirstByte &= !(FirstSegWidthMask)
+FirstByte |= FirstSeg
+
+SecondByteShift = ((SecondByteIndex + 1) * 8) - (Offset + Width) = 6
+SecondSeg = Value & SecondSegWidth
+SecondByte &= !(SecondSegWidth << SecondByteShift)
+SecondByte |= (SecondSeg << SecondByteShift)
  */
 #[proc_macro_attribute]
 pub fn bitfield(
