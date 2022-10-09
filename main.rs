@@ -13,6 +13,14 @@ use bitfield::*;
 
 // 0 0 0 0 0 0 0 0 | 0 0 0 0 0 0 0 0 |
 // A - - A B - - -   - - - - - - - B
+
+// 0 0 0 0 0 0 0 0 | 0 0 0 0 0 0 0 0 | 0 0 0 0 0 0 0 0 | 0 0 0 0 0 0 0 0
+// A - - - - - A B   - - - - - - - -   - - - - - - - B   C - - - - - - C
+// start index 0 -> end index 3: two full segments including last one -> 1, 2 (end - 1)
+
+// 0 0 0 0 0 0 0 0 | 0 0 0 0 0 0 0 0 | 0 0 0 0 0 0 0 0 | 0 0 0 0 0 0 0 0
+// A B - - B C - D   - - - - - - - -   - - - - - - - -   D E - - - - - E
+// start index 0 -> end index 3: two full segments -> 1, 2
 #[bitfield]
 pub struct MyFourBytes {
     a: B1,
