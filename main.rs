@@ -56,4 +56,8 @@ fn main() {
     bitfield.set_c(0b1011101);
     assert_eq!(0b1011101, bitfield.get_c());
     println!("{:x?}", bitfield.raw_data());
+    bitfield.set_c(0);
+    bitfield.set_d(0b1000100000011);
+    println!("{:x?}", bitfield.raw_data());
+    assert_eq!(0b1000100000011, bitfield.get_d());
 }
