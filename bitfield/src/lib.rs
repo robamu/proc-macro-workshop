@@ -18,6 +18,13 @@ pub fn mask_from_width(width: u8) -> u8 {
     (2_usize.pow(width as u32) - 1) as u8
 }
 
+pub struct StartEndInfo {
+    start_idx: usize,
+    // start_on_byte_boundary: bool,
+    end_idx: usize,
+    end_on_byte_boundary: bool,
+}
+
 pub trait Specifier {
     const BITS: usize;
     const MASK: usize;
@@ -28,8 +35,13 @@ pub trait Specifier {
     fn read_from_bytes(offset: usize, raw: &[u8]) -> Self::UTYPE;
 
     #[inline]
-    fn start_end_idx(offset: usize) -> (usize, usize) {
-        (offset / 8, (offset + Self::BITS) / 8)
+    fn start_end_info(offset: usize) -> StartEndInfo {
+        StartEndInfo {
+            start_idx: offset / 8,
+            //start_on_byte_boundary: (offset % 8) == 0,
+            end_idx: (offset + Self::BITS) / 8,
+            end_on_byte_boundary: (offset + Self::BITS) % 8 == 0,
+        }
     }
 
     #[inline]

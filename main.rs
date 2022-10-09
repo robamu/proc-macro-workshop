@@ -18,9 +18,6 @@ pub struct MyFourBytes {
     d: B13,
     e: B7,
 }
-// OFFSET_A = 0
-// OFFSET_B = OFFSET_A + B1::BITS
-// OFFSET_C = OFFSET_B + B4::BITS
 
 fn main() {
     let mut bitfield = MyFourBytes::new();
@@ -37,12 +34,17 @@ fn main() {
     assert_eq!(0, bitfield.get_d());
     bitfield.set_a(1);
     assert_eq!(1, bitfield.get_a());
+    println!("{:x?}", bitfield.raw_data());
     bitfield.set_a(0);
     assert_eq!(0, bitfield.get_a());
-    bitfield.set_b(0b111);
-    assert_eq!(0b111, bitfield.get_b());
+    bitfield.set_b(0b1001);
+    println!("{:x?}", bitfield.raw_data());
+    assert_eq!(0b1001, bitfield.get_b());
     bitfield.set_b(0b101);
     assert_eq!(0b101, bitfield.get_b());
-    bitfield.set_c(0b1111111);
-    assert_eq!(0b1111111, bitfield.get_c());
+    bitfield.set_b(0);
+    println!("{:x?}", bitfield.raw_data());
+    bitfield.set_c(0b1011101);
+    assert_eq!(0b1011101, bitfield.get_c());
+    println!("{:x?}", bitfield.raw_data());
 }
