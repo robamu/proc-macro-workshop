@@ -137,7 +137,8 @@ pub fn make_bitwidth_markers(_input: proc_macro::TokenStream) -> proc_macro::Tok
                     let (first_byte_idx, last_byte_idx) = (info.start_idx, info.end_idx);
                     let first_seg_mask = mask_from_width(Self::first_seg_width(offset));
                     let mut rem_shift = (last_byte_idx - first_byte_idx) * 8;
-                    raw[first_byte_idx] = (raw[first_byte_idx] & !first_seg_mask) | ((val >> rem_shift) as u8 & first_seg_mask);
+                    raw[first_byte_idx] = (raw[first_byte_idx] & !first_seg_mask)
+                        | ((val >> rem_shift) as u8 & first_seg_mask);
                     for i in first_byte_idx + 1..last_byte_idx {
                         rem_shift -= 8;
                         raw[i] = (val >> rem_shift) as u8 & 0xff;
@@ -146,7 +147,8 @@ pub fn make_bitwidth_markers(_input: proc_macro::TokenStream) -> proc_macro::Tok
                         let shift = Self::lshift_from_end(last_byte_idx, offset);
                         let last_seg_width = Self::last_seg_width(offset);
                         let last_seg_mask = mask_from_width(last_seg_width);
-                        raw[last_byte_idx] = (raw[last_byte_idx] & !(last_seg_mask << shift)) | ((val & last_seg_mask as Self::UTYPE) << shift) as u8
+                        raw[last_byte_idx] = (raw[last_byte_idx] & !(last_seg_mask << shift))
+                            | ((val & last_seg_mask as Self::UTYPE) << shift) as u8
                     }
                 }
             }
