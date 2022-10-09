@@ -58,8 +58,6 @@ pub trait Specifier {
     fn last_seg_width(offset: usize) -> u8 {
         ((offset + Self::BITS) % 8) as u8
     }
-
-    fn middle_segments(&self, first_seg_width: u8, last_seg_width: u8) -> u8;
 }
 
 make_bitwidth_markers!();

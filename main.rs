@@ -68,4 +68,14 @@ fn main() {
     bitfield.set_d(0b1000100000011);
     println!("{:x?}", bitfield.raw_data());
     assert_eq!(0b1000100000011, bitfield.get_d());
+
+    let mut raw_bytes: [u8; 4] = [0; 4];
+    raw_bytes[1] = 0b1;
+    raw_bytes[2] = 0b10101010;
+    raw_bytes[3] = 0b10101010;
+    let start_idx = 1;
+    let mut val = (raw_bytes[start_idx] & 0b1) as u32;
+    val = (val << 8) | raw_bytes[start_idx + 1] as u32;
+    val = (val << 8) | raw_bytes[start_idx + 2] as u32;
+    println!("Value: {:x?}", val);
 }

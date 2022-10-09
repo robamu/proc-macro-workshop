@@ -132,7 +132,23 @@ pub fn make_bitwidth_markers(_input: proc_macro::TokenStream) -> proc_macro::Tok
                 }
             }
             Width::U32 | Width::U64 => {
-                quote! {}
+                quote! {
+                    let info = Self::start_end_info(offset);
+                    let (first_byte_idx, last_byte_idx) = (info.start_idx, info.end_idx);
+                    let first_seg_mask = mask_from_width(Self::first_seg_width(offset));
+                    let mut rem_shift = (last_byte_idx - first_byte_idx) * 8;
+                    raw[first_byte_idx] = (raw[first_byte_idx] & !first_seg_mask) | ((val >> rem_shift) as u8 & first_seg_mask);
+                    for i in first_byte_idx + 1..last_byte_idx {
+                        rem_shift -= 8;
+                        raw[i] = (val >> rem_shift) as u8 & 0xff;
+                    }
+                    if !info.end_on_byte_boundary {
+                        let shift = Self::lshift_from_end(last_byte_idx, offset);
+                        let last_seg_width = Self::last_seg_width(offset);
+                        let last_seg_mask = mask_from_width(last_seg_width);
+                        raw[last_byte_idx] = (raw[last_byte_idx] & !(last_seg_mask << shift)) | ((val & last_seg_mask as Self::UTYPE) << shift) as u8
+                    }
+                }
             }
         };
         let reader_impl = match width {
@@ -156,43 +172,25 @@ pub fn make_bitwidth_markers(_input: proc_macro::TokenStream) -> proc_macro::Tok
                     }
                 }
             }
-            Width::U16 => {
+            Width::U16 | Width::U32 | Width::U64 => {
                 quote! {
                     let info = Self::start_end_info(offset);
-                    let (first_byte_idx, last_byte_idx) = (info.start_idx, info.end_idx);
+                    let (first_byte_idx, end_byte_idx) = (info.start_idx, info.end_idx);
                     let first_seg_mask = mask_from_width(Self::first_seg_width(offset));
-                    // First two cases: 9-15 bit field only spans two bytes
-                    if info.end_on_byte_boundary {
-                        (((raw[first_byte_idx] & first_seg_mask) << 8) | raw[last_byte_idx]) as u16
-                    } else {
-                        let shift = Self::lshift_from_end(last_byte_idx, offset);
-                        let last_seg_width = Self::last_seg_width(offset);
-                        let last_seg_mask = mask_from_width(last_seg_width);
-                        if last_byte_idx - first_byte_idx == 1 {
-                            (
-                                ((raw[first_byte_idx] & first_seg_mask) << last_seg_width) |
-                                ((raw[last_byte_idx] >> shift) & last_seg_mask)
-                            ) as u16
-                        } else {
-                            // The bitfield spans three bytes, so there is a full byte middle segment
-                            let first_seg = (
-                                ((raw[first_byte_idx] & first_seg_mask) as u16) << (last_seg_width + 8)
-                            ) as u16;
-                            let second_seg = ((raw[first_byte_idx + 1] as u16) << last_seg_width) as u16;
-                            let last_seg = ((raw[last_byte_idx] >> shift) & last_seg_mask) as u16;
-                            first_seg | second_seg | last_seg
-                        }
+                    let mut val = (raw[first_byte_idx] & first_seg_mask) as Self::UTYPE;
+                    for i in first_byte_idx + 1..end_byte_idx {
+                        val = (val << 8) | raw[i] as Self::UTYPE;
                     }
-                }
-            }
-            Width::U32 => {
-                quote! {
-                    0
-                }
-            }
-            Width::U64 => {
-                quote! {
-                    0
+                    if info.end_on_byte_boundary {
+                        val
+                    } else {
+                        let shift = Self::lshift_from_end(end_byte_idx, offset);
+                        let last_seg_width = Self::last_seg_width(offset);
+                        let last_seg_mask = mask_from_width(last_seg_width) as Self::UTYPE;
+                        val = (val << last_seg_width)
+                            | ((raw[end_byte_idx] >> shift) as Self::UTYPE & last_seg_mask);
+                        val
+                    }
                 }
             }
         };
@@ -209,10 +207,6 @@ pub fn make_bitwidth_markers(_input: proc_macro::TokenStream) -> proc_macro::Tok
                 }
                 fn read_from_bytes(offset: usize, raw: &[u8]) -> Self::UTYPE {
                     #reader_impl
-                }
-
-                fn middle_segments(&self, first_seg_width: u8, last_seg_width: u8) -> u8 {
-                    0
                 }
             }
         })
