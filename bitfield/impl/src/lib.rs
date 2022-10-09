@@ -148,7 +148,7 @@ pub fn make_bitwidth_markers(_input: proc_macro::TokenStream) -> proc_macro::Tok
                         let last_seg_width = Self::last_seg_width(offset);
                         let last_seg_mask = mask_from_width(last_seg_width);
                         raw[last_byte_idx] = (raw[last_byte_idx] & !(last_seg_mask << shift))
-                            | ((val & last_seg_mask as Self::UTYPE) << shift) as u8
+                            | (val & (last_seg_mask << shift) as Self::UTYPE) as u8
                     }
                 }
             }
