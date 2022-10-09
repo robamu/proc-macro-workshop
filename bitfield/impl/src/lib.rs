@@ -102,6 +102,7 @@ pub fn make_bitwidth_markers(_input: proc_macro::TokenStream) -> proc_macro::Tok
                     }
                 }
             }
+            /*
             Width::U16 => {
                 quote! {
                     let info = Self::start_end_info(offset);
@@ -131,12 +132,16 @@ pub fn make_bitwidth_markers(_input: proc_macro::TokenStream) -> proc_macro::Tok
                     }
                 }
             }
-            Width::U32 | Width::U64 => {
+
+             */
+            Width::U16 | Width::U32 | Width::U64 => {
                 quote! {
                     let info = Self::start_end_info(offset);
                     let (first_byte_idx, last_byte_idx) = (info.start_idx, info.end_idx);
-                    let first_seg_mask = mask_from_width(Self::first_seg_width(offset));
-                    let mut rem_shift = (last_byte_idx - first_byte_idx) * 8;
+                    let first_seg_width = Self::first_seg_width(offset);
+                    let first_seg_mask = mask_from_width(first_seg_width);
+                    let last_seg_width = Self::last_seg_width(offset);
+                    let mut rem_shift = (last_byte_idx - first_byte_idx - 1) * 8 + last_seg_width as usize;
                     raw[first_byte_idx] = (raw[first_byte_idx] & !first_seg_mask)
                         | ((val >> rem_shift) as u8 & first_seg_mask);
                     for i in first_byte_idx + 1..last_byte_idx {
@@ -145,10 +150,9 @@ pub fn make_bitwidth_markers(_input: proc_macro::TokenStream) -> proc_macro::Tok
                     }
                     if !info.end_on_byte_boundary {
                         let shift = Self::lshift_from_end(last_byte_idx, offset);
-                        let last_seg_width = Self::last_seg_width(offset);
                         let last_seg_mask = mask_from_width(last_seg_width);
                         raw[last_byte_idx] = (raw[last_byte_idx] & !(last_seg_mask << shift))
-                            | (val & (last_seg_mask << shift) as Self::UTYPE) as u8
+                            | ((val & last_seg_mask as Self::UTYPE) << shift) as u8
                     }
                 }
             }
