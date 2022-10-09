@@ -74,7 +74,7 @@ pub fn make_bitwidth_markers(_input: proc_macro::TokenStream) -> proc_macro::Tok
             Width::U64 => quote! { u64 },
         };
         let bitwidth_ident = format_ident!("B{}", i);
-        let mask_val = 2_usize.pow(i.clone() as u32) - 1;
+        let mask_val = 2_usize.pow(*i as u32) - 1;
         let writer_impl = match width {
             Width::U8 => {
                 quote! {
