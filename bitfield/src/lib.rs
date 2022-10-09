@@ -13,10 +13,19 @@
 pub use bitfield_impl::bitfield;
 use bitfield_impl::make_bitwidth_markers;
 
+#[inline]
+pub fn mask_from_width(width: u8) -> u8 {
+    (2_usize.pow(width as u32) - 1) as u8
+}
+
 pub trait Specifier {
     const BITS: usize;
     const MASK: usize;
     type UTYPE;
+
+    // Has different implementions based on UTYPE
+    fn write_to_bytes(val: Self::UTYPE, offset: usize, raw: &mut [u8]);
+    fn read_from_bytes(offset: usize, raw: &[u8]) -> Self::UTYPE;
 
     #[inline]
     fn last_seg_width(offset: usize) -> u8 {
@@ -28,7 +37,6 @@ pub trait Specifier {
         (8 - (offset % 8)) as u8
     }
 
-    #[inline]
     fn middle_segments(&self, first_seg_width: u8, last_seg_width: u8) -> u8;
 }
 
