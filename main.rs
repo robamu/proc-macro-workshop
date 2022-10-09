@@ -10,6 +10,9 @@ use bitfield::*;
 
 // 0 0 0 0 0 0 0 0 | 0 0 0 0 0 0 0 0 | 0 0 0 0 0 0 0 0 | 0 0 0 0 0 0 0 0
 // A B - - B C - -   - - - C D - - -   - - - - - - - -   D E - - - - - E
+
+// 0 0 0 0 0 0 0 0 | 0 0 0 0 0 0 0 0 |
+// A - - A B - - -   - - - - - - - B
 #[bitfield]
 pub struct MyFourBytes {
     a: B1,
@@ -17,6 +20,12 @@ pub struct MyFourBytes {
     c: B7,
     d: B13,
     e: B7,
+}
+
+#[bitfield]
+pub struct MyTwoBytes {
+    a: B4,
+    b: B12,
 }
 
 fn main() {

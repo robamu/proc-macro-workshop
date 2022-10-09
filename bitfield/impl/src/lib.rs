@@ -112,16 +112,19 @@ pub fn make_bitwidth_markers(_input: proc_macro::TokenStream) -> proc_macro::Tok
                 quote! {
                     let info = Self::start_end_info(offset);
                     let (first_byte_idx, second_byte_idx) = (info.start_idx, info.end_idx);
-                    let shift = Self::lshift_from_end(second_byte_idx, offset);
                     if info.end_on_byte_boundary {
                         raw[first_byte_idx] & Self::MASK as u8
-                    } else if first_byte_idx == second_byte_idx {
-                        (raw[first_byte_idx] >> shift) & Self::MASK as u8
                     } else {
-                        let first_seg_mask = mask_from_width(Self::first_seg_width(offset));
-                        let second_seg_width = Self::last_seg_width(offset);
-                        let second_seg_mask = mask_from_width(second_seg_width);
-                        ((raw[first_byte_idx] & first_seg_mask) << second_seg_width) | ((raw[second_byte_idx] >> shift) & second_seg_mask)
+                        let shift = Self::lshift_from_end(second_byte_idx, offset);
+                        if first_byte_idx == second_byte_idx {
+                            (raw[first_byte_idx] >> shift) & Self::MASK as u8
+                        } else {
+                            let first_seg_mask = mask_from_width(Self::first_seg_width(offset));
+                            let second_seg_width = Self::last_seg_width(offset);
+                            let second_seg_mask = mask_from_width(second_seg_width);
+                            ((raw[first_byte_idx] & first_seg_mask) << second_seg_width) |
+                                ((raw[second_byte_idx] >> shift) & second_seg_mask)
+                        }
                     }
                 }
             }
@@ -129,19 +132,28 @@ pub fn make_bitwidth_markers(_input: proc_macro::TokenStream) -> proc_macro::Tok
                 quote! {
                     let info = Self::start_end_info(offset);
                     let (first_byte_idx, last_byte_idx) = (info.start_idx, info.end_idx);
-                    let shift = Self::lshift_from_end(last_byte_idx, offset);
                     let first_seg_mask = mask_from_width(Self::first_seg_width(offset));
-                    let second_seg_width = Self::last_seg_width(offset);
-                    let second_seg_mask = mask_from_width(second_seg_width);
-                    // 9-15 bit field only spans two bytes
-                    if last_byte_idx - first_byte_idx == 1 {
-                        (((raw[first_byte_idx] & first_seg_mask) << second_seg_width) | ((raw[last_byte_idx] >> shift) & second_seg_mask)) as u16
+                    // First two cases: 9-15 bit field only spans two bytes
+                    if info.end_on_byte_boundary {
+                        (((raw[first_byte_idx] & first_seg_mask) << 8) | raw[last_byte_idx]) as u16
                     } else {
-                        // The bitfield spans three bytes, so there is a full byte middle segment
-                        let first_seg = (((raw[first_byte_idx] & first_seg_mask) as u16) << (second_seg_width + 8)) as u16;
-                        let second_seg = ((raw[first_byte_idx + 1] as u16) << 8) as u16;
-                        let last_seg = ((raw[last_byte_idx] >> shift) & second_seg_mask) as u16;
-                        first_seg | second_seg | last_seg
+                        let shift = Self::lshift_from_end(last_byte_idx, offset);
+                        let second_seg_width = Self::last_seg_width(offset);
+                        let second_seg_mask = mask_from_width(second_seg_width);
+                        if last_byte_idx - first_byte_idx == 1 {
+                            (
+                                ((raw[first_byte_idx] & first_seg_mask) << second_seg_width) |
+                                ((raw[last_byte_idx] >> shift) & second_seg_mask)
+                            ) as u16
+                        } else {
+                            // The bitfield spans three bytes, so there is a full byte middle segment
+                            let first_seg = (
+                                ((raw[first_byte_idx] & first_seg_mask) as u16) << (second_seg_width + 8)
+                            ) as u16;
+                            let second_seg = ((raw[first_byte_idx + 1] as u16) << 8) as u16;
+                            let last_seg = ((raw[last_byte_idx] >> shift) & second_seg_mask) as u16;
+                            first_seg | second_seg | last_seg
+                        }
                     }
                 }
             }
