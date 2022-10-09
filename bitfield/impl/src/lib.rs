@@ -74,19 +74,19 @@ pub fn make_bitwidth_markers(_input: proc_macro::TokenStream) -> proc_macro::Tok
             Width::U64 => quote! { u64 },
         };
         let bitwidth_ident = format_ident!("B{}", i);
-        let mask_val = 2_usize.pow(*i as u32) - 1;
         let writer_impl = match width {
             Width::U8 => {
                 quote! {
                     let info = Self::start_end_info(offset);
                     let (first_byte_idx, second_byte_idx) = (info.start_idx, info.end_idx);
                     let shift = Self::lshift_from_end(second_byte_idx, offset);
+                    let mask = mask_from_width(Self::BITS as u8);
                     // First two cases: 1 - 8 bit field in same byte
                     if info.end_on_byte_boundary {
-                        raw[first_byte_idx] = (raw[first_byte_idx] & !(Self::MASK as u8)) | val;
+                        raw[first_byte_idx] = (raw[first_byte_idx] & !(mask as u8)) | val;
                     } else if first_byte_idx == second_byte_idx {
                         raw[first_byte_idx] =
-                            (raw[first_byte_idx] & !((Self::MASK as u8) << shift))
+                            (raw[first_byte_idx] & !((mask as u8) << shift))
                             | (val << shift) as u8;
                     } else {
                         // Bitfield spans two bytes
@@ -102,38 +102,6 @@ pub fn make_bitwidth_markers(_input: proc_macro::TokenStream) -> proc_macro::Tok
                     }
                 }
             }
-            /*
-            Width::U16 => {
-                quote! {
-                    let info = Self::start_end_info(offset);
-                    let (first_byte_idx, last_byte_idx) = (info.start_idx, info.end_idx);
-                    let first_seg_mask = mask_from_width(Self::first_seg_width(offset));
-                    // First two cases: 9-15 bit field only spans two bytes
-                    if info.end_on_byte_boundary {
-                        raw[first_byte_idx] = (raw[first_byte_idx] & !first_seg_mask)
-                            | ((val >> 8) & first_seg_mask as u16) as u8;
-                        raw[last_byte_idx] = (val & 0xff) as u8;
-                    } else {
-                        let shift = Self::lshift_from_end(last_byte_idx, offset);
-                        let second_seg_width = Self::last_seg_width(offset);
-                        let second_seg_mask = mask_from_width(second_seg_width);
-                        if last_byte_idx - first_byte_idx == 1 {
-                            raw[first_byte_idx] = (raw[first_byte_idx] & !first_seg_mask)
-                                | ((val >> second_seg_width) & first_seg_mask as u16) as u8;
-                            raw[last_byte_idx] = (raw[last_byte_idx] & !(second_seg_mask << shift))
-                                | ((val & second_seg_mask as u16) << shift) as u8;
-                        } else {
-                            raw[first_byte_idx] = (raw[first_byte_idx] & !first_seg_mask)
-                                | ((val >> second_seg_width + 8) & first_seg_mask as u16) as u8;
-                            raw[first_byte_idx + 1] = ((val >> second_seg_width) & 0xff) as u8;
-                            raw[last_byte_idx] = (raw[last_byte_idx] & !(second_seg_mask << shift))
-                                | ((val & second_seg_mask as u16) << shift) as u8;
-                        }
-                    }
-                }
-            }
-
-             */
             Width::U16 | Width::U32 | Width::U64 => {
                 quote! {
                     let info = Self::start_end_info(offset);
@@ -162,12 +130,13 @@ pub fn make_bitwidth_markers(_input: proc_macro::TokenStream) -> proc_macro::Tok
                 quote! {
                     let info = Self::start_end_info(offset);
                     let (first_byte_idx, second_byte_idx) = (info.start_idx, info.end_idx);
+                    let mask = mask_from_width(Self::BITS as u8);
                     if info.end_on_byte_boundary {
-                        raw[first_byte_idx] & Self::MASK as u8
+                        raw[first_byte_idx] & mask as u8
                     } else {
                         let shift = Self::lshift_from_end(second_byte_idx, offset);
                         if first_byte_idx == second_byte_idx {
-                            (raw[first_byte_idx] >> shift) & Self::MASK as u8
+                            (raw[first_byte_idx] >> shift) & mask as u8
                         } else {
                             let first_seg_mask = mask_from_width(Self::first_seg_width(offset));
                             let second_seg_width = Self::last_seg_width(offset);
@@ -205,7 +174,6 @@ pub fn make_bitwidth_markers(_input: proc_macro::TokenStream) -> proc_macro::Tok
 
             impl Specifier for #bitwidth_ident {
                 const BITS: usize = #i;
-                const MASK: usize = #mask_val;
                 type UTYPE = #type_ident;
 
                 fn write_to_bytes(val: Self::UTYPE, offset: usize, raw: &mut [u8]) {
@@ -220,76 +188,6 @@ pub fn make_bitwidth_markers(_input: proc_macro::TokenStream) -> proc_macro::Tok
     output.into()
 }
 
-/*
-This  generic setter approach is a bit overkill for many common cases, but should work for all
-special cases.
-
-0 0 0 0 0 0 0 0 | 0 0 0 0 0 0 0 0 | 0 0 0 0 0 0 0 0 | 0 0 0 0 0 0 0 0
-            1 0   0 0 1 0 1 1 1 0   1 1
-
-Value: 100010111011
-Offset: 6
-Width: 12
-First Byte Index: Offset / 8
-First Seg Width: 8 - (Offset % 8) = 2
-Last Byte Index: (Offset + Width) / 8
-Last Seg Width: (Offset + Width) % 8 = 2
-Second Seg Width (Only 8 left) = 8
-
-Last Seg: Value & 0b11
-Second Seg: (Value >> LastSegWidth) & 0xff
-First Seg: (Value >> LastSegWidth + Segs * 8) & 0b11
-
-First Byte &= ~FirstSegWidth
-FirstByte |= First Seg
-
-Second Byte &= ~0xff
-SecondByte |= Second Seg
-
-ShiftToFront: 8 - Width
-
-ThirdByte &= ~ (LastSegWidth << ShiftToFront(Width))
-ThirdByte |= (LastSeg << ShiftToFront(Width))
-
-0 0 0 0 0 0 0 0 | 0 0 0 0 0 0 0 0
-                          1 0 1 0
-
-Offset = 15
-FirstByteIndex = Offset / 8  => 1
-LastByteIndex = (Offset + Width) / 8 => 1
-Shift = ( 2 * 8 ) - 1 - 15 = 0
-SecondByte &= !(Mask << Shift)
-SecondByte |= (Value & Mask) << Shift
-
-0 0 0 0 0 0 0 0 | 0 0 0 0 0 0 0 0
-                      1 0 1 0
-Offset = 10
-FirstByteIndex = 1
-LastByteIndex = 1
-Index = Offset / 8
-Shift = ((Index + 1) * 8 ) - (Offset + Width) = 2
-SecondByte &= !(Mask << Shift)
-SecondByte |= (Value & Mask) << Shift
-
-0 0 0 0 0 0 0 0 | 0 0 0 0 0 0 0 0
-          1 0 0   1 1
-
-Offset: 5
-FirstByteIndex = 0
-SecondByteIndex = 1
-First Seg Width: 8 - (Offset % 8) = 3
-Second Seg Width: (Offset + Width) % 8 = 2
-
-LastSeg = Value & SecondSegWidth
-FirstSeg = (Value >> SecondSegWidth) & FirstSegWidth
-FirstByte &= !(FirstSegWidthMask)
-FirstByte |= FirstSeg
-
-SecondByteShift = ((SecondByteIndex + 1) * 8) - (Offset + Width) = 6
-SecondSeg = Value & SecondSegWidth
-SecondByte &= !(SecondSegWidth << SecondByteShift)
-SecondByte |= (SecondSeg << SecondByteShift)
- */
 #[proc_macro_attribute]
 pub fn bitfield(
     args: proc_macro::TokenStream,
@@ -350,6 +248,9 @@ pub fn bitfield(
         }
 
         impl #out_ident {
+
+            #const_offsets
+
             pub fn new() -> Self {
                 Self {
                     raw_data: [0; #compile_time_len]
@@ -360,7 +261,6 @@ pub fn bitfield(
                 self.raw_data.as_ref()
             }
 
-            #const_offsets
             #setters
             #getters
         }

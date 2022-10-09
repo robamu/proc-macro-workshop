@@ -14,20 +14,18 @@ pub use bitfield_impl::bitfield;
 use bitfield_impl::make_bitwidth_markers;
 
 #[inline]
-pub fn mask_from_width(width: u8) -> u8 {
+pub const fn mask_from_width(width: u8) -> u8 {
     (2_usize.pow(width as u32) - 1) as u8
 }
 
 pub struct StartEndInfo {
     start_idx: usize,
-    // start_on_byte_boundary: bool,
     end_idx: usize,
     end_on_byte_boundary: bool,
 }
 
 pub trait Specifier {
     const BITS: usize;
-    const MASK: usize;
     type UTYPE;
 
     // Has different implementions based on UTYPE
@@ -38,7 +36,6 @@ pub trait Specifier {
     fn start_end_info(offset: usize) -> StartEndInfo {
         StartEndInfo {
             start_idx: offset / 8,
-            //start_on_byte_boundary: (offset % 8) == 0,
             end_idx: (offset + Self::BITS) / 8,
             end_on_byte_boundary: (offset + Self::BITS) % 8 == 0,
         }
@@ -60,4 +57,7 @@ pub trait Specifier {
     }
 }
 
+pub mod checks {
+    pub trait TotalSizeIsMultipleOfEights {}
+}
 make_bitwidth_markers!();
