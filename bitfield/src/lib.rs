@@ -28,13 +28,23 @@ pub trait Specifier {
     fn read_from_bytes(offset: usize, raw: &[u8]) -> Self::UTYPE;
 
     #[inline]
-    fn last_seg_width(offset: usize) -> u8 {
-        ((offset + Self::BITS) % 8) as u8
+    fn start_end_idx(offset: usize) -> (usize, usize) {
+        (offset / 8, (offset + Self::BITS) / 8)
+    }
+
+    #[inline]
+    fn lshift_from_end(end_idx: usize, offset: usize) -> usize {
+        ((end_idx + 1) * 8) - (offset + Self::BITS)
     }
 
     #[inline]
     fn first_seg_width(offset: usize) -> u8 {
         (8 - (offset % 8)) as u8
+    }
+
+    #[inline]
+    fn last_seg_width(offset: usize) -> u8 {
+        ((offset + Self::BITS) % 8) as u8
     }
 
     fn middle_segments(&self, first_seg_width: u8, last_seg_width: u8) -> u8;

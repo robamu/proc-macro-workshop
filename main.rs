@@ -8,13 +8,19 @@
 
 use bitfield::*;
 
+// 0 0 0 0 0 0 0 0 | 0 0 0 0 0 0 0 0 | 0 0 0 0 0 0 0 0 | 0 0 0 0 0 0 0 0
+// A B - - B C - -   - - - C D - - -   - - - - - - - -   D E - - - - - E
 #[bitfield]
 pub struct MyFourBytes {
     a: B1,
     b: B4,
     c: B7,
-    d: B20,
+    d: B13,
+    e: B7,
 }
+// OFFSET_A = 0
+// OFFSET_B = OFFSET_A + B1::BITS
+// OFFSET_C = OFFSET_B + B4::BITS
 
 fn main() {
     let mut bitfield = MyFourBytes::new();

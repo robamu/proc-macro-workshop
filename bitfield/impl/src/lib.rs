@@ -78,16 +78,15 @@ pub fn make_bitwidth_markers(_input: proc_macro::TokenStream) -> proc_macro::Tok
         let writer_impl = match width {
             Width::U8 => {
                 quote! {
-                    let first_byte_idx = offset / 8;
-                    let second_byte_idx = (offset + Self::BITS) / 8;
-                    let shift = ((second_byte_idx + 1) * 8) - (offset + Self::BITS);
+                    let (first_byte_idx, second_byte_idx) = Self::start_end_idx(offset);
+                    let shift = Self::lshift_from_end(second_byte_idx, offset);
                     if first_byte_idx == second_byte_idx {
                         raw[first_byte_idx] =
                             (raw[first_byte_idx] & !((Self::MASK as u8) << shift)) |
                             (val << shift) as u8;
                     } else {
-                        let first_seg_width = 8 - (offset % 8) as u8;
-                        let second_seg_width = ((offset +  Self::BITS) % 8) as u8;
+                        let first_seg_width = Self::first_seg_width(offset);
+                        let second_seg_width = Self::last_seg_width(offset);
                         let first_seg_mask = mask_from_width(first_seg_width);
                         let second_seg_mask = mask_from_width(second_seg_width);
                         let second_seg = val & second_seg_mask;
@@ -107,15 +106,13 @@ pub fn make_bitwidth_markers(_input: proc_macro::TokenStream) -> proc_macro::Tok
         let reader_impl = match width {
             Width::U8 => {
                 quote! {
-                    let first_byte_idx = offset / 8;
-                    let second_byte_idx = (offset + Self::BITS) / 8;
-                    let shift = ((second_byte_idx + 1) * 8) - (offset + Self::BITS);
+                    let (first_byte_idx, second_byte_idx) = Self::start_end_idx(offset);
+                    let shift = Self::lshift_from_end(second_byte_idx, offset);
                     if first_byte_idx == second_byte_idx {
                         (raw[first_byte_idx] >> shift) & Self::MASK as u8
                     } else {
-                        let first_seg_width = 8 - (offset % 8) as u8;
-                        let second_seg_width = ((offset +  Self::BITS) % 8) as u8;
-                        let first_seg_mask = mask_from_width(first_seg_width);
+                        let first_seg_mask = mask_from_width(Self::first_seg_width(offset));
+                        let second_seg_width = Self::last_seg_width(offset);
                         let second_seg_mask = mask_from_width(second_seg_width);
                         ((raw[first_byte_idx] & first_seg_mask) << second_seg_width) | ((raw[second_byte_idx] >> shift) & second_seg_mask)
                     }
@@ -123,7 +120,20 @@ pub fn make_bitwidth_markers(_input: proc_macro::TokenStream) -> proc_macro::Tok
             }
             Width::U16 => {
                 quote! {
-                    0
+                    let (first_byte_idx, last_byte_idx) = Self::start_end_idx(offset);
+                    dbg!("U16: Offset {}, First Idx {}, Last Idx: {}", offset, first_byte_idx, last_byte_idx);
+                    let shift = Self::lshift_from_end(last_byte_idx, offset);
+                    let first_seg_mask = mask_from_width(Self::first_seg_width(offset));
+                    let second_seg_width = Self::last_seg_width(offset);
+                    let second_seg_mask = mask_from_width(second_seg_width);
+                    // 9-15 bit field only spans two bytes
+                    if last_byte_idx - first_byte_idx == 1 {
+                        (((raw[first_byte_idx] & first_seg_mask) << second_seg_width) | ((raw[last_byte_idx] >> shift) & second_seg_mask)) as u16
+                    } else {
+                        assert_eq!(first_byte_idx + 2, last_byte_idx, "Expected last byte to be two bytes larger than first byte");
+                        // The bitfield spans three bytes, so there is a full byte middle segment
+                        ((raw[first_byte_idx] & first_seg_mask) << (second_seg_width + 8) | (raw[first_byte_idx + 1] << 8) | raw[last_byte_idx]) as u16
+                    }
                 }
             }
             Width::U32 => {
@@ -244,7 +254,8 @@ pub fn bitfield(
     let mut const_offsets = TokenStream::new();
     let mut setters = TokenStream::new();
     let mut getters = TokenStream::new();
-    let mut preceeding_const = None;
+    let mut previous_const = None;
+    let mut previous_specifier = None;
     for field in &input.fields {
         if let Some(ident) = &field.ident {
             let offset_ident = format_ident!("OFFSET_{}", ident.to_string().to_uppercase());
@@ -253,17 +264,17 @@ pub fn bitfield(
                 let path = p.path.clone();
                 let specifier_path = quote! { <#path as Specifier> };
 
-                if let Some(previous_const) = preceeding_const {
+                if let Some(previous_const) = previous_const {
                     const_offsets.extend(quote! {
-                        const #offset_ident: usize = Self::#previous_const + #specifier_path::BITS;
+                        const #offset_ident: usize = Self::#previous_const + #previous_specifier::BITS;
                     });
-                    preceeding_const = Some(offset_ident.clone());
                 } else {
                     const_offsets.extend(quote! {
-                        const #offset_ident: usize = #specifier_path::BITS;
+                        const #offset_ident: usize = 0;
                     });
-                    preceeding_const = Some(offset_ident.clone());
                 }
+                previous_const = Some(offset_ident.clone());
+                previous_specifier = Some(specifier_path.clone());
                 path_vec.push(path);
                 let setter_name = format_ident!("set_{}", ident);
                 let getter_name = format_ident!("get_{}", ident);
@@ -295,6 +306,11 @@ pub fn bitfield(
                     raw_data: [0; #compile_time_len]
                 }
             }
+
+            pub fn raw_data(&self) -> &[u8] {
+                self.raw_data.as_ref()
+            }
+
             #const_offsets
             #setters
             #getters
