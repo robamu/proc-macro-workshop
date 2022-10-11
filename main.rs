@@ -21,6 +21,8 @@ use bitfield::*;
 // 0 0 0 0 0 0 0 0 | 0 0 0 0 0 0 0 0 | 0 0 0 0 0 0 0 0 | 0 0 0 0 0 0 0 0
 // A B - - B C C D   - - - - - - - -   - - - - - - - -   D E - - - - - E
 // start index 0 -> end index 3: two full segments -> 1, 2
+
+/*
 #[bitfield]
 pub struct MyFourBytes {
     a: B1,
@@ -44,8 +46,11 @@ pub struct OtherFourBytes {
     d: B18,
     e: B7,
 }
+ */
 
 fn main() {
+
+    /*
     let mut bitfield = MyFourBytes::new();
 
     assert_eq!(0, bitfield.get_a());
@@ -83,4 +88,5 @@ fn main() {
     bitfield.set_d(0x30003);
     println!("{:x?}", bitfield.raw_data());
     assert_eq!(0x30003, bitfield.get_d());
+     */
 }
