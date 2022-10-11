@@ -249,7 +249,6 @@ pub fn bitfield(
             raw_data: [u8; #full_len_bytes]
         }
 
-        // Mangle the name
         impl #out_ident {
             #const_offsets
 
@@ -257,7 +256,7 @@ pub fn bitfield(
 
             pub fn new() -> Self {
                 bitfield::checks::width_check::<
-                    <checks::NumDummy<{ Self::FULL_LEN_MOD_EIGHT }> as bitfield::checks::NumToGeneric>
+                    <bitfield::checks::NumDummy<{ Self::FULL_LEN_MOD_EIGHT }> as bitfield::checks::NumToGeneric>
                     ::GENERIC
                 >();
                 Self {
