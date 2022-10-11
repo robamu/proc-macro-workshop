@@ -74,6 +74,9 @@ pub fn make_bitwidth_markers(_input: proc_macro::TokenStream) -> proc_macro::Tok
             Width::U64 => quote! { u64 },
         };
         let bitwidth_ident = format_ident!("B{}", i);
+        // This is the first dumb approach I came up with with worked.
+        // Look at https://github.com/dtolnay/proc-macro-workshop/issues/55 for a smarter
+        // implementation by the author
         let writer_impl = match width {
             Width::U8 => {
                 quote! {
@@ -125,6 +128,9 @@ pub fn make_bitwidth_markers(_input: proc_macro::TokenStream) -> proc_macro::Tok
                 }
             }
         };
+        // This is the first dumb approach I came up with with worked.
+        // Look at https://github.com/dtolnay/proc-macro-workshop/issues/55 for a smarter
+        // implementation by the author
         let reader_impl = match width {
             Width::U8 => {
                 quote! {
