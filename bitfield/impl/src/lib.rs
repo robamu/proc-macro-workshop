@@ -209,7 +209,7 @@ pub fn bitfield(
             let scoped_offset_ident = quote! { Self::#offset_ident };
             if let Type::Path(p) = &field.ty {
                 let path = p.path.clone();
-                let specifier_path = quote! { <#path as Specifier> };
+                let specifier_path = quote! { <#path as bitfield::Specifier> };
 
                 if let Some(previous_const) = previous_const {
                     const_offsets.extend(quote! {
@@ -239,21 +239,29 @@ pub fn bitfield(
         }
     }
 
-    let compile_time_len = quote! {
-       (#(<#path_vec as Specifier>::BITS)+*) / 8
+    let full_len_bits = quote! { (#(<#path_vec as Specifier>::BITS)+*) };
+    let full_len_bytes = quote! {
+       #full_len_bits / 8
     };
     let output = quote! {
         #[repr(C)]
         #out_vis struct #out_ident {
-            raw_data: [u8; #compile_time_len]
+            raw_data: [u8; #full_len_bytes]
         }
 
+        // Mangle the name
         impl #out_ident {
             #const_offsets
 
+            const FULL_LEN_MOD_EIGHT: usize = #full_len_bits % 8;
+
             pub fn new() -> Self {
+                bitfield::checks::width_check::<
+                    <checks::NumDummy<{ Self::FULL_LEN_MOD_EIGHT }> as bitfield::checks::NumToGeneric>
+                    ::GENERIC
+                >();
                 Self {
-                    raw_data: [0; #compile_time_len]
+                    raw_data: [0; #full_len_bytes]
                 }
             }
 
