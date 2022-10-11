@@ -243,12 +243,12 @@ pub fn bitfield(
        (#(<#path_vec as Specifier>::BITS)+*) / 8
     };
     let output = quote! {
+        #[repr(C)]
         #out_vis struct #out_ident {
             raw_data: [u8; #compile_time_len]
         }
 
         impl #out_ident {
-
             #const_offsets
 
             pub fn new() -> Self {

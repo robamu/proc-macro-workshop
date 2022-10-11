@@ -58,6 +58,16 @@ pub trait Specifier {
 }
 
 pub mod checks {
-    pub trait TotalSizeIsMultipleOfEights {}
+    pub trait TotalSizeIsMultipleOfEightsBits {}
+    pub enum OneMod8 {}
+    pub struct TwoMod8 {}
+    pub struct ThreeMod8 {}
+    pub struct FourMod8 {}
+    pub struct FiveMod8 {}
+    pub struct SixMod8 {}
+    pub struct SevenMod8 {}
+    pub struct ZeroMod8 {}
+    impl TotalSizeIsMultipleOfEightsBits for ZeroMod8 {}
 }
+
 make_bitwidth_markers!();
