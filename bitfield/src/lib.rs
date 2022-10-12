@@ -18,43 +18,9 @@ pub const fn mask_from_width(width: u8) -> u8 {
     (2_usize.pow(width as u32) - 1) as u8
 }
 
-pub struct StartEndInfo {
-    start_idx: usize,
-    end_idx: usize,
-    end_on_byte_boundary: bool,
-}
-
 pub trait Specifier {
     const BITS: usize;
     type UTYPE;
-
-    // Has different implementions based on UTYPE
-    fn write_to_bytes(val: Self::UTYPE, offset: usize, raw: &mut [u8]);
-    fn read_from_bytes(offset: usize, raw: &[u8]) -> Self::UTYPE;
-
-    #[inline]
-    fn start_end_info(offset: usize) -> StartEndInfo {
-        StartEndInfo {
-            start_idx: offset / 8,
-            end_idx: (offset + Self::BITS) / 8,
-            end_on_byte_boundary: (offset + Self::BITS) % 8 == 0,
-        }
-    }
-
-    #[inline]
-    fn lshift_from_end(end_idx: usize, offset: usize) -> usize {
-        ((end_idx + 1) * 8) - (offset + Self::BITS)
-    }
-
-    #[inline]
-    fn first_seg_width(offset: usize) -> u8 {
-        (8 - (offset % 8)) as u8
-    }
-
-    #[inline]
-    fn last_seg_width(offset: usize) -> u8 {
-        ((offset + Self::BITS) % 8) as u8
-    }
 }
 
 make_bitwidth_markers!();

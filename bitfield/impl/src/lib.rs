@@ -74,114 +74,12 @@ pub fn make_bitwidth_markers(_input: proc_macro::TokenStream) -> proc_macro::Tok
             Width::U64 => quote! { u64 },
         };
         let bitwidth_ident = format_ident!("B{}", i);
-        let writer_impl = match width {
-            Width::U8 => {
-                quote! {
-                    let info = Self::start_end_info(offset);
-                    let (first_byte_idx, second_byte_idx) = (info.start_idx, info.end_idx);
-                    let shift = Self::lshift_from_end(second_byte_idx, offset);
-                    let mask = mask_from_width(Self::BITS as u8);
-                    // First two cases: 1 - 8 bit field in same byte
-                    if info.end_on_byte_boundary {
-                        raw[first_byte_idx] = (raw[first_byte_idx] & !(mask as u8)) | val;
-                    } else if first_byte_idx == second_byte_idx {
-                        raw[first_byte_idx] =
-                            (raw[first_byte_idx] & !((mask as u8) << shift))
-                            | (val << shift) as u8;
-                    } else {
-                        // Bitfield spans two bytes
-                        let second_seg_width = Self::last_seg_width(offset);
-                        let first_seg_mask = mask_from_width(Self::first_seg_width(offset));
-                        let second_seg_mask = mask_from_width(second_seg_width);
-                        let second_seg = val & second_seg_mask;
-                        let first_seg = (val >> second_seg_width) & first_seg_mask;
-                        raw[first_byte_idx] = (raw[first_byte_idx] & !first_seg_mask)
-                            | (first_seg as u8);
-                        raw[second_byte_idx] = (raw[second_byte_idx] & !(second_seg_mask << shift))
-                            | ((second_seg << shift) as u8);
-                    }
-                }
-            }
-            Width::U16 | Width::U32 | Width::U64 => {
-                quote! {
-                    let info = Self::start_end_info(offset);
-                    let (first_byte_idx, last_byte_idx) = (info.start_idx, info.end_idx);
-                    let first_seg_width = Self::first_seg_width(offset);
-                    let first_seg_mask = mask_from_width(first_seg_width);
-                    let last_seg_width = Self::last_seg_width(offset);
-                    let mut rem_shift = (last_byte_idx - first_byte_idx - 1) * 8 + last_seg_width as usize;
-                    raw[first_byte_idx] = (raw[first_byte_idx] & !first_seg_mask)
-                        | ((val >> rem_shift) as u8 & first_seg_mask);
-                    for i in first_byte_idx + 1..last_byte_idx {
-                        rem_shift -= 8;
-                        raw[i] = (val >> rem_shift) as u8 & 0xff;
-                    }
-                    if !info.end_on_byte_boundary {
-                        let shift = Self::lshift_from_end(last_byte_idx, offset);
-                        let last_seg_mask = mask_from_width(last_seg_width);
-                        raw[last_byte_idx] = (raw[last_byte_idx] & !(last_seg_mask << shift))
-                            | ((val & last_seg_mask as Self::UTYPE) << shift) as u8
-                    }
-                }
-            }
-        };
-        let reader_impl = match width {
-            Width::U8 => {
-                quote! {
-                    let info = Self::start_end_info(offset);
-                    let (first_byte_idx, second_byte_idx) = (info.start_idx, info.end_idx);
-                    let mask = mask_from_width(Self::BITS as u8);
-                    if info.end_on_byte_boundary {
-                        raw[first_byte_idx] & mask as u8
-                    } else {
-                        let shift = Self::lshift_from_end(second_byte_idx, offset);
-                        if first_byte_idx == second_byte_idx {
-                            (raw[first_byte_idx] >> shift) & mask as u8
-                        } else {
-                            let first_seg_mask = mask_from_width(Self::first_seg_width(offset));
-                            let second_seg_width = Self::last_seg_width(offset);
-                            let second_seg_mask = mask_from_width(second_seg_width);
-                            ((raw[first_byte_idx] & first_seg_mask) << second_seg_width) |
-                                ((raw[second_byte_idx] >> shift) & second_seg_mask)
-                        }
-                    }
-                }
-            }
-            Width::U16 | Width::U32 | Width::U64 => {
-                quote! {
-                    let info = Self::start_end_info(offset);
-                    let (first_byte_idx, end_byte_idx) = (info.start_idx, info.end_idx);
-                    let first_seg_mask = mask_from_width(Self::first_seg_width(offset));
-                    let mut val = (raw[first_byte_idx] & first_seg_mask) as Self::UTYPE;
-                    for i in first_byte_idx + 1..end_byte_idx {
-                        val = (val << 8) | raw[i] as Self::UTYPE;
-                    }
-                    if info.end_on_byte_boundary {
-                        val
-                    } else {
-                        let shift = Self::lshift_from_end(end_byte_idx, offset);
-                        let last_seg_width = Self::last_seg_width(offset);
-                        let last_seg_mask = mask_from_width(last_seg_width) as Self::UTYPE;
-                        val = (val << last_seg_width)
-                            | ((raw[end_byte_idx] >> shift) as Self::UTYPE & last_seg_mask);
-                        val
-                    }
-                }
-            }
-        };
         output.extend(quote! {
             pub enum #bitwidth_ident {}
 
             impl Specifier for #bitwidth_ident {
                 const BITS: usize = #i;
                 type UTYPE = #type_ident;
-
-                fn write_to_bytes(val: Self::UTYPE, offset: usize, raw: &mut [u8]) {
-                    #writer_impl
-                }
-                fn read_from_bytes(offset: usize, raw: &[u8]) -> Self::UTYPE {
-                    #reader_impl
-                }
             }
         })
     }
@@ -227,12 +125,12 @@ pub fn bitfield(
                 let getter_name = format_ident!("get_{}", ident);
                 setters.extend(quote! {
                     pub fn #setter_name(&mut self, val: #specifier_path::UTYPE) {
-                        #specifier_path::write_to_bytes(val, #scoped_offset_ident, self.raw_data.as_mut());
+                        self.set(val as u64, #scoped_offset_ident, #specifier_path::BITS);
                     }
                 });
                 getters.extend(quote! {
                     pub fn #getter_name(&self) -> #specifier_path::UTYPE {
-                        #specifier_path::read_from_bytes(#scoped_offset_ident, self.raw_data.as_ref())
+                        self.get(#scoped_offset_ident, #specifier_path::BITS) as #specifier_path::UTYPE
                     }
                 })
             }
@@ -264,6 +162,40 @@ pub fn bitfield(
                 }
             }
 
+            // These two functions were taken from the reference implementation,
+            // which is vastly superior to what I hacked together.
+            // https://github.com/dtolnay/proc-macro-workshop/issues/55
+            pub fn set(&mut self, val: u64, offset: usize, width: usize) {
+                for i in 0..width {
+                    let mask = 1 << i;
+                    let val_bit_is_set = val & mask == mask;
+                    let offset = i + offset;
+                    let byte_index = offset / 8;
+                    let bit_offset = offset % 8;
+                    let byte = &mut self.raw_data[byte_index];
+                    let mask = 1 << bit_offset;
+                    if val_bit_is_set {
+                        *byte |= mask;
+                    } else {
+                        *byte &= !mask;
+                    }
+
+                }
+            }
+            pub fn get(&self, offset: usize, width: usize) -> u64 {
+                let mut val = 0;
+                for i in 0..width {
+                    let offset = i + offset;
+                    let byte_index = offset / 8;
+                    let bit_offset = offset % 8;
+                    let byte = self.raw_data[byte_index];
+                    let mask = 1 << bit_offset;
+                    if byte & mask == mask {
+                        val |= 1 << i;
+                    }
+                }
+                val
+            }
             pub fn raw_data(&self) -> &[u8] {
                 self.raw_data.as_ref()
             }
