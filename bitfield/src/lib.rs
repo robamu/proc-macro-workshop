@@ -10,8 +10,8 @@
 //
 // From the perspective of a user of this crate, they get all the necessary APIs
 // (macro, trait, struct) through the one bitfield crate.
-pub use bitfield_impl::bitfield;
 use bitfield_impl::make_bitwidth_markers;
+pub use bitfield_impl::{bitfield, BitfieldSpecifier};
 
 #[inline]
 pub const fn mask_from_width(width: u8) -> u8 {

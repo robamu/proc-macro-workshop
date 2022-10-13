@@ -208,6 +208,9 @@ pub fn bitfield(
 }
 
 #[proc_macro_derive(BitfieldSpecifier)]
-pub fn derive(_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-   proc_macro::TokenStream::new().into()
+pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let input = parse_macro_input!(input as syn::DeriveInput);
+    dbg!("{}", &input);
+    let output = TokenStream::new();
+    output.into()
 }
