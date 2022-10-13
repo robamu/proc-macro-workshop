@@ -1,7 +1,8 @@
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::parse::{Parse, ParseStream};
-use syn::{braced, parse_macro_input, Field, Ident, Token, Type, Visibility, Data};
+use syn::spanned::Spanned;
+use syn::{braced, parse_macro_input, Data, Field, Ident, Token, Type, Visibility};
 
 const MAX_BIT_WIDTH: usize = 64;
 
@@ -210,11 +211,39 @@ pub fn bitfield(
 #[proc_macro_derive(BitfieldSpecifier)]
 pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = parse_macro_input!(input as syn::DeriveInput);
-    dbg!("{}", &input);
-    if let Data::Enum(enumeration) = input.data {
-    } else {
-        // TODO: generate compiler error
+    BitfieldDeriver::gen_derive(input)
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
+
+struct BitfieldDeriver {}
+
+impl BitfieldDeriver {
+    pub fn gen_derive(input: syn::DeriveInput) -> syn::Result<TokenStream> {
+        //dbg!("{}", &input);
+        if let Data::Enum(enumeration) = &input.data {
+            let variants = enumeration.variants.iter().count();
+            let mut divisible_by_two;
+            let mut div_by_two = variants;
+            loop {
+                divisible_by_two = div_by_two % 2 == 0;
+                if !divisible_by_two {
+                    return Err(syn::Error::new(
+                        input.span(),
+                        format!("Number of variants {} not to the power of two", variants),
+                    ));
+                }
+                div_by_two = div_by_two / 2;
+                if div_by_two == 1 {
+                    break;
+                }
+            }
+        } else {
+            return Err(syn::Error::new(
+                input.span(),
+                "Macro can only be applied to enums",
+            ));
+        }
+        Ok(TokenStream::new())
     }
-    let output = TokenStream::new();
-    output.into()
 }

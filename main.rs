@@ -6,27 +6,46 @@
 // To run the code:
 //     $ cargo run
 
-
 use bitfield::*;
 
 #[bitfield]
-pub struct MyFourBytes {
-    a: B1,
-    b: B3,
-    c: B4,
-    d: B24,
+pub struct RedirectionTableEntry {
+    //acknowledged: bool,
+    //trigger_mode: TriggerMode,
+    //delivery_mode: DeliveryMode,
+    reserved: B3,
+}
+
+#[derive(BitfieldSpecifier, Debug, PartialEq)]
+pub enum TriggerMode {
+    Edge = 0,
+    Level = 1,
+}
+
+#[derive(BitfieldSpecifier, Debug, PartialEq)]
+pub enum DeliveryMode {
+    Fixed = 0b000,
+    Lowest = 0b001,
+    SMI = 0b010,
+    RemoteRead = 0b011,
+    NMI = 0b100,
+    Init = 0b101,
+    Startup = 0b110,
+    External = 0b111,
 }
 
 fn main() {
-    let mut bitfield = MyFourBytes::new();
-    assert_eq!(0, bitfield.get_a());
-    assert_eq!(0, bitfield.get_b());
-    assert_eq!(0, bitfield.get_c());
-    assert_eq!(0, bitfield.get_d());
+    assert_eq!(std::mem::size_of::<RedirectionTableEntry>(), 1);
 
-    bitfield.set_c(14);
-    assert_eq!(0, bitfield.get_a());
-    assert_eq!(0, bitfield.get_b());
-    assert_eq!(14, bitfield.get_c());
-    assert_eq!(0, bitfield.get_d());
+    // Initialized to all 0 bits.
+    let mut entry = RedirectionTableEntry::new();
+    assert_eq!(entry.get_acknowledged(), false);
+    assert_eq!(entry.get_trigger_mode(), TriggerMode::Edge);
+    assert_eq!(entry.get_delivery_mode(), DeliveryMode::Fixed);
+
+    entry.set_acknowledged(true);
+    entry.set_delivery_mode(DeliveryMode::SMI);
+    assert_eq!(entry.get_acknowledged(), true);
+    assert_eq!(entry.get_trigger_mode(), TriggerMode::Edge);
+    assert_eq!(entry.get_delivery_mode(), DeliveryMode::SMI);
 }
