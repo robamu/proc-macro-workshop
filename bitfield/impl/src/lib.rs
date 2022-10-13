@@ -1,7 +1,7 @@
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::parse::{Parse, ParseStream};
-use syn::{braced, parse_macro_input, Field, Ident, Token, Type, Visibility};
+use syn::{braced, parse_macro_input, Field, Ident, Token, Type, Visibility, Data};
 
 const MAX_BIT_WIDTH: usize = 64;
 
@@ -211,6 +211,10 @@ pub fn bitfield(
 pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = parse_macro_input!(input as syn::DeriveInput);
     dbg!("{}", &input);
+    if let Data::Enum(enumeration) = input.data {
+    } else {
+        // TODO: generate compiler error
+    }
     let output = TokenStream::new();
     output.into()
 }
