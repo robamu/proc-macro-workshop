@@ -29,61 +29,37 @@ impl Parse for StructInfo {
     }
 }
 
-enum Width {
-    U8,
-    U16,
-    U32,
-    U64,
+fn bits_type_ident(bits: usize) -> TokenStream {
+    match bits {
+        0..=8 => quote!{ u8 },
+        9..=16 => quote! { u16 },
+        17..=32 => quote! { u32 },
+        33..=63 => quote! { u64 },
+        _ => panic!("Invalid number of bits {}", bits)
+    }
 }
 
 #[proc_macro]
 pub fn make_bitwidth_markers(_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let mut output = TokenStream::new();
-    for ref i in 0..MAX_BIT_WIDTH {
-        let div = i / 8;
-        let rem = i % 8;
-        let width = match div {
-            0 => Width::U8,
-            1 => {
-                if rem == 0 {
-                    Width::U8
-                } else {
-                    Width::U16
-                }
-            }
-            2 => {
-                if rem == 0 {
-                    Width::U16
-                } else {
-                    Width::U32
-                }
-            }
-            3 => Width::U32,
-            4 => {
-                if rem == 0 {
-                    Width::U32
-                } else {
-                    Width::U64
-                }
-            }
-            _ => Width::U64,
-        };
-        let type_ident = match width {
-            Width::U8 => quote! { u8 },
-            Width::U16 => quote! { u16 },
-            Width::U32 => quote! { u32 },
-            Width::U64 => quote! { u64 },
-        };
+    for ref i in 1..MAX_BIT_WIDTH {
+        let bits_type_ident = bits_type_ident(*i);
         let bitwidth_ident = format_ident!("B{}", i);
         output.extend(quote! {
             pub enum #bitwidth_ident {}
 
             impl Specifier for #bitwidth_ident {
                 const BITS: usize = #i;
-                type UTYPE = #type_ident;
+                type UTYPE = #bits_type_ident;
             }
         })
     }
+    output.extend(quote! {
+        impl Specifier for bool {
+            const BITS: usize = 1usize;
+            type UTYPE = u8;
+        }
+    });
     output.into()
 }
 
@@ -138,7 +114,7 @@ pub fn bitfield(
         }
     }
 
-    let full_len_bits = quote! { (#(<#path_vec as Specifier>::BITS)+*) };
+    let full_len_bits = quote! { (#(<#path_vec as bitfield::Specifier>::BITS)+*) };
     let full_len_bytes = quote! {
        #full_len_bits / 8
     };
@@ -222,28 +198,37 @@ impl BitfieldDeriver {
     pub fn gen_derive(input: syn::DeriveInput) -> syn::Result<TokenStream> {
         //dbg!("{}", &input);
         if let Data::Enum(enumeration) = &input.data {
-            let variants = enumeration.variants.iter().count();
+            let variants_count = enumeration.variants.iter().count();
             let mut divisible_by_two;
-            let mut div_by_two = variants;
+            let mut div_by_two= variants_count;
+            let mut bits = 0;
             loop {
                 divisible_by_two = div_by_two % 2 == 0;
                 if !divisible_by_two {
                     return Err(syn::Error::new(
                         input.span(),
-                        format!("Number of variants {} not to the power of two", variants),
+                        format!("Number of variants {} not to the power of two", variants_count),
                     ));
                 }
                 div_by_two = div_by_two / 2;
+                bits += 1;
                 if div_by_two == 1 {
                     break;
                 }
             }
+            let ident = input.ident;
+            let bits_type_ident = bits_type_ident(bits);
+            Ok(quote!{
+            impl bitfield::Specifier for #ident {
+                const BITS: usize = #bits;
+                type UTYPE = #bits_type_ident;
+            }
+        })
         } else {
             return Err(syn::Error::new(
                 input.span(),
                 "Macro can only be applied to enums",
             ));
         }
-        Ok(TokenStream::new())
     }
 }

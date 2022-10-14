@@ -11,8 +11,8 @@ use bitfield::*;
 #[bitfield]
 pub struct RedirectionTableEntry {
     //acknowledged: bool,
-    //trigger_mode: TriggerMode,
-    //delivery_mode: DeliveryMode,
+    trigger_mode: TriggerMode,
+    delivery_mode: DeliveryMode,
     reserved: B3,
 }
 
