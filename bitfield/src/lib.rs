@@ -91,4 +91,8 @@ pub mod checks {
     }
     impl TotalSizeIsMultipleOfEightsBits for ZeroMod8 {}
     pub fn width_check<T: TotalSizeIsMultipleOfEightsBits>() {}
+
+    pub trait DiscriminantInRange {}
+
+    pub fn discriminant_check<T: DiscriminantInRange>() {}
 }
