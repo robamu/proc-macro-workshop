@@ -213,14 +213,11 @@ impl BitfieldDeriver {
                 divisible_by_two = div_by_two % 2 == 0;
                 if !divisible_by_two {
                     return Err(syn::Error::new(
-                        input.span(),
-                        format!(
-                            "Number of variants {} not to the power of two",
-                            variants_count
-                        ),
+                        input.attrs.first().span(),
+                        "BitfieldSpecifier expected a number of variants which is a power of 2",
                     ));
                 }
-                div_by_two = div_by_two / 2;
+                div_by_two /= 2;
                 bits += 1;
                 if div_by_two == 1 {
                     break;
@@ -251,10 +248,10 @@ impl BitfieldDeriver {
                 }
             })
         } else {
-            return Err(syn::Error::new(
+            Err(syn::Error::new(
                 input.span(),
                 "Macro can only be applied to enums",
-            ));
+            ))
         }
     }
 }
