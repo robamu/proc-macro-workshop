@@ -31,11 +31,11 @@ impl Parse for StructInfo {
 
 fn bits_type_ident(bits: usize) -> TokenStream {
     match bits {
-        0..=8 => quote!{ u8 },
+        0..=8 => quote! { u8 },
         9..=16 => quote! { u16 },
         17..=32 => quote! { u32 },
         33..=63 => quote! { u64 },
-        _ => panic!("Invalid number of bits {}", bits)
+        _ => panic!("Invalid number of bits {}", bits),
     }
 }
 
@@ -51,13 +51,21 @@ pub fn make_bitwidth_markers(_input: proc_macro::TokenStream) -> proc_macro::Tok
             impl Specifier for #bitwidth_ident {
                 const BITS: usize = #i;
                 type UTYPE = #bits_type_ident;
+
+                fn from_u64(val: u64) -> Self::UTYPE {
+                    val as Self::UTYPE
+                }
             }
         })
     }
     output.extend(quote! {
         impl Specifier for bool {
             const BITS: usize = 1usize;
-            type UTYPE = u8;
+            type UTYPE = bool;
+
+            fn from_u64(val: u64) -> Self::UTYPE {
+                val == 1
+            }
         }
     });
     output.into()
@@ -107,7 +115,8 @@ pub fn bitfield(
                 });
                 getters.extend(quote! {
                     pub fn #getter_name(&self) -> #specifier_path::UTYPE {
-                        self.get(#scoped_offset_ident, #specifier_path::BITS) as #specifier_path::UTYPE
+                        let val = self.get(#scoped_offset_ident, #specifier_path::BITS);
+                        #specifier_path::from_u64(val)
                     }
                 })
             }
@@ -140,7 +149,7 @@ pub fn bitfield(
             }
 
             // These two functions were taken from the reference implementation,
-            // which is vastly superior to what I hacked together.
+            // which is vastly superior to what I hacked together
             // https://github.com/dtolnay/proc-macro-workshop/issues/55
             pub fn set(&mut self, val: u64, offset: usize, width: usize) {
                 for i in 0..width {
@@ -156,7 +165,6 @@ pub fn bitfield(
                     } else {
                         *byte &= !mask;
                     }
-
                 }
             }
             pub fn get(&self, offset: usize, width: usize) -> u64 {
@@ -200,14 +208,17 @@ impl BitfieldDeriver {
         if let Data::Enum(enumeration) = &input.data {
             let variants_count = enumeration.variants.iter().count();
             let mut divisible_by_two;
-            let mut div_by_two= variants_count;
+            let mut div_by_two = variants_count;
             let mut bits = 0;
             loop {
                 divisible_by_two = div_by_two % 2 == 0;
                 if !divisible_by_two {
                     return Err(syn::Error::new(
                         input.span(),
-                        format!("Number of variants {} not to the power of two", variants_count),
+                        format!(
+                            "Number of variants {} not to the power of two",
+                            variants_count
+                        ),
                     ));
                 }
                 div_by_two = div_by_two / 2;
@@ -218,12 +229,16 @@ impl BitfieldDeriver {
             }
             let ident = input.ident;
             let bits_type_ident = bits_type_ident(bits);
-            Ok(quote!{
-            impl bitfield::Specifier for #ident {
-                const BITS: usize = #bits;
-                type UTYPE = #bits_type_ident;
-            }
-        })
+            Ok(quote! {
+                impl bitfield::Specifier for #ident {
+                    const BITS: usize = #bits;
+                    type UTYPE = #ident;
+
+                    fn from_u64(val: u64) -> Self::UTYPE {
+                        val as Self::UTYPE
+                    }
+                }
+            })
         } else {
             return Err(syn::Error::new(
                 input.span(),

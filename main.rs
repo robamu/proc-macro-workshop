@@ -10,7 +10,7 @@ use bitfield::*;
 
 #[bitfield]
 pub struct RedirectionTableEntry {
-    //acknowledged: bool,
+    acknowledged: bool,
     trigger_mode: TriggerMode,
     delivery_mode: DeliveryMode,
     reserved: B3,
@@ -49,3 +49,8 @@ fn main() {
     assert_eq!(entry.get_trigger_mode(), TriggerMode::Edge);
     assert_eq!(entry.get_delivery_mode(), DeliveryMode::SMI);
 }
+// // fn main() {
+// //     let test = true;
+// //     let test2 = test as u64;
+// //
+// // }

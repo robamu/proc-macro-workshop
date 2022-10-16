@@ -21,6 +21,8 @@ pub const fn mask_from_width(width: u8) -> u8 {
 pub trait Specifier {
     const BITS: usize;
     type UTYPE;
+
+    fn from_u64(val: u64) -> Self::UTYPE;
 }
 
 make_bitwidth_markers!();
