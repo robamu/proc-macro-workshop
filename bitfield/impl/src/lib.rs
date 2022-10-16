@@ -204,12 +204,11 @@ struct BitfieldDeriver {}
 
 impl BitfieldDeriver {
     pub fn gen_derive(input: syn::DeriveInput) -> syn::Result<TokenStream> {
-        //dbg!("{}", &input);
         if let Data::Enum(enumeration) = &input.data {
             let variants_count = enumeration.variants.iter().count();
             let mut divisible_by_two;
             let mut div_by_two = variants_count;
-            let mut bits = 0;
+            let mut bits: usize = 0;
             loop {
                 divisible_by_two = div_by_two % 2 == 0;
                 if !divisible_by_two {
@@ -228,25 +227,23 @@ impl BitfieldDeriver {
                 }
             }
             let ident = input.ident;
-            let bits_type_ident = bits_type_ident(bits);
             let mut variant_match_arms = TokenStream::new();
             for variant in &enumeration.variants {
                 let vident = &variant.ident;
                 variant_match_arms.extend(quote! {
-                    x if x == #ident::#vident as u64 => #ident::#vident,
+                    x if x == Self::#vident as u64 => Self::#vident,
                 });
             }
+            let ident_str = ident.to_string();
             variant_match_arms.extend(quote! {
-                _ => panic!("Received unexpected value {} for enum {}", val, #ident)
+                _ => panic!("Received unexpected value {} for enum {}", val, #ident_str)
             });
             Ok(quote! {
                 impl bitfield::Specifier for #ident {
                     const BITS: usize = #bits;
-                    type UTYPE = #ident;
+                    type UTYPE = Self;
 
                     fn from_u64(val: u64) -> Self::UTYPE {
-                        // TODO: This is actually more complex for enum types. Need to check for
-                        // equality to individual variants and then return the appropriate variant.
                         match val {
                             #variant_match_arms
                         }

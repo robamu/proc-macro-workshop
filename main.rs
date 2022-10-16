@@ -6,6 +6,8 @@
 // To run the code:
 //     $ cargo run
 
+extern crate core;
+
 use bitfield::*;
 
 #[bitfield]
@@ -34,6 +36,14 @@ pub enum DeliveryMode {
     External = 0b111,
 }
 
+// impl DeliveryMode {
+//     fn from_u64(val: u64) -> Self {
+//         match val {
+//             x if x == Self::External as u64 => Self::External,
+//             _ => panic!("oh no")
+//         }
+//     }
+// }
 fn main() {
     assert_eq!(std::mem::size_of::<RedirectionTableEntry>(), 1);
 
@@ -49,6 +59,7 @@ fn main() {
     assert_eq!(entry.get_trigger_mode(), TriggerMode::Edge);
     assert_eq!(entry.get_delivery_mode(), DeliveryMode::SMI);
 }
+
 // // fn main() {
 // //     let test = true;
 // //     let test2 = test as u64;
