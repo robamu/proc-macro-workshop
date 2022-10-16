@@ -8,6 +8,7 @@
 
 extern crate core;
 
+use std::marker::PhantomData;
 use bitfield::*;
 
 #[bitfield]
@@ -44,7 +45,20 @@ pub enum DeliveryMode {
 //         }
 //     }
 // }
+
+pub trait LargerThanEight {}
+
+const NUM: usize = 9;
+
+pub struct Assert<const EXPR: bool> {}
+impl LargerThanEight for Assert<true> {}
+
+pub fn check<T: LargerThanEight>() {}
+pub struct LargerThanEightCheck<T: LargerThanEight> { phantom: PhantomData<T> }
+
 fn main() {
+    //check::<True<LARGER_THAN_EIGHT>>();
+    let _: LargerThanEightCheck<Assert<{ NUM > 8 }>>;
     assert_eq!(std::mem::size_of::<RedirectionTableEntry>(), 1);
 
     // Initialized to all 0 bits.
