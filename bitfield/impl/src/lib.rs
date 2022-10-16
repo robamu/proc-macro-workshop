@@ -235,6 +235,8 @@ impl BitfieldDeriver {
                     type UTYPE = #ident;
 
                     fn from_u64(val: u64) -> Self::UTYPE {
+                        // TODO: This is actually more complex for enum types. Need to check for
+                        // equality to individual variants and then return the appropriate variant.
                         val as Self::UTYPE
                     }
                 }
