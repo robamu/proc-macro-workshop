@@ -1,7 +1,8 @@
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::parse::{Parse, ParseStream};
-use syn::{braced, parse_macro_input, Field, Ident, Token, Type, Visibility};
+use syn::spanned::Spanned;
+use syn::{braced, parse_macro_input, Data, Field, Ident, Token, Type, Visibility};
 
 const MAX_BIT_WIDTH: usize = 64;
 
@@ -28,52 +29,23 @@ impl Parse for StructInfo {
     }
 }
 
-enum Width {
-    U8,
-    U16,
-    U32,
-    U64,
+fn bits_type_ident(bits: usize) -> TokenStream {
+    match bits {
+        0..=8 => quote! { u8 },
+        9..=16 => quote! { u16 },
+        17..=32 => quote! { u32 },
+        33..=63 => quote! { u64 },
+        _ => panic!("Invalid number of bits {}", bits),
+    }
 }
 
 #[proc_macro]
 pub fn make_bitwidth_markers(_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let mut output = TokenStream::new();
-    for ref i in 0..MAX_BIT_WIDTH {
-        let div = i / 8;
-        let rem = i % 8;
-        let width = match div {
-            0 => Width::U8,
-            1 => {
-                if rem == 0 {
-                    Width::U8
-                } else {
-                    Width::U16
-                }
-            }
-            2 => {
-                if rem == 0 {
-                    Width::U16
-                } else {
-                    Width::U32
-                }
-            }
-            3 => Width::U32,
-            4 => {
-                if rem == 0 {
-                    Width::U32
-                } else {
-                    Width::U64
-                }
-            }
-            _ => Width::U64,
-        };
-        let type_ident = match width {
-            Width::U8 => quote! { u8 },
-            Width::U16 => quote! { u16 },
-            Width::U32 => quote! { u32 },
-            Width::U64 => quote! { u64 },
-        };
+    for ref i in 1..MAX_BIT_WIDTH {
+        let bits_type_ident = bits_type_ident(*i);
         let bitwidth_ident = format_ident!("B{}", i);
+<<<<<<< HEAD
         // This is the first dumb approach I came up with with worked.
         // Look at https://github.com/dtolnay/proc-macro-workshop/issues/55 for a smarter
         // implementation by the author
@@ -175,22 +147,31 @@ pub fn make_bitwidth_markers(_input: proc_macro::TokenStream) -> proc_macro::Tok
                 }
             }
         };
+=======
+>>>>>>> 48775870c4faa258b8b25ef8f5eca2849846dbfa
         output.extend(quote! {
             pub enum #bitwidth_ident {}
 
             impl Specifier for #bitwidth_ident {
                 const BITS: usize = #i;
-                type UTYPE = #type_ident;
+                type UTYPE = #bits_type_ident;
 
-                fn write_to_bytes(val: Self::UTYPE, offset: usize, raw: &mut [u8]) {
-                    #writer_impl
-                }
-                fn read_from_bytes(offset: usize, raw: &[u8]) -> Self::UTYPE {
-                    #reader_impl
+                fn from_u64(val: u64) -> Self::UTYPE {
+                    val as Self::UTYPE
                 }
             }
         })
     }
+    output.extend(quote! {
+        impl Specifier for bool {
+            const BITS: usize = 1usize;
+            type UTYPE = bool;
+
+            fn from_u64(val: u64) -> Self::UTYPE {
+                val == 1
+            }
+        }
+    });
     output.into()
 }
 
@@ -233,19 +214,20 @@ pub fn bitfield(
                 let getter_name = format_ident!("get_{}", ident);
                 setters.extend(quote! {
                     pub fn #setter_name(&mut self, val: #specifier_path::UTYPE) {
-                        #specifier_path::write_to_bytes(val, #scoped_offset_ident, self.raw_data.as_mut());
+                        self.set(val as u64, #scoped_offset_ident, #specifier_path::BITS);
                     }
                 });
                 getters.extend(quote! {
                     pub fn #getter_name(&self) -> #specifier_path::UTYPE {
-                        #specifier_path::read_from_bytes(#scoped_offset_ident, self.raw_data.as_ref())
+                        let val = self.get(#scoped_offset_ident, #specifier_path::BITS);
+                        #specifier_path::from_u64(val)
                     }
                 })
             }
         }
     }
 
-    let full_len_bits = quote! { (#(<#path_vec as Specifier>::BITS)+*) };
+    let full_len_bits = quote! { (#(<#path_vec as bitfield::Specifier>::BITS)+*) };
     let full_len_bytes = quote! {
        #full_len_bits / 8
     };
@@ -270,6 +252,39 @@ pub fn bitfield(
                 }
             }
 
+            // These two functions were taken from the reference implementation,
+            // which is vastly superior to what I hacked together
+            // https://github.com/dtolnay/proc-macro-workshop/issues/55
+            pub fn set(&mut self, val: u64, offset: usize, width: usize) {
+                for i in 0..width {
+                    let mask = 1 << i;
+                    let val_bit_is_set = val & mask == mask;
+                    let offset = i + offset;
+                    let byte_index = offset / 8;
+                    let bit_offset = offset % 8;
+                    let byte = &mut self.raw_data[byte_index];
+                    let mask = 1 << bit_offset;
+                    if val_bit_is_set {
+                        *byte |= mask;
+                    } else {
+                        *byte &= !mask;
+                    }
+                }
+            }
+            pub fn get(&self, offset: usize, width: usize) -> u64 {
+                let mut val = 0;
+                for i in 0..width {
+                    let offset = i + offset;
+                    let byte_index = offset / 8;
+                    let bit_offset = offset % 8;
+                    let byte = self.raw_data[byte_index];
+                    let mask = 1 << bit_offset;
+                    if byte & mask == mask {
+                        val |= 1 << i;
+                    }
+                }
+                val
+            }
             pub fn raw_data(&self) -> &[u8] {
                 self.raw_data.as_ref()
             }
@@ -282,6 +297,65 @@ pub fn bitfield(
 }
 
 #[proc_macro_derive(BitfieldSpecifier)]
-pub fn derive(_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-   proc_macro::TokenStream::new().into()
+pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let input = parse_macro_input!(input as syn::DeriveInput);
+    BitfieldDeriver::gen_derive(input)
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
+
+struct BitfieldDeriver {}
+
+impl BitfieldDeriver {
+    pub fn gen_derive(input: syn::DeriveInput) -> syn::Result<TokenStream> {
+        if let Data::Enum(enumeration) = &input.data {
+            let variants_count = enumeration.variants.iter().count();
+            let mut divisible_by_two;
+            let mut div_by_two = variants_count;
+            let mut bits: usize = 0;
+            loop {
+                divisible_by_two = div_by_two % 2 == 0;
+                if !divisible_by_two {
+                    return Err(syn::Error::new(
+                        input.attrs.first().span(),
+                        "BitfieldSpecifier expected a number of variants which is a power of 2",
+                    ));
+                }
+                div_by_two /= 2;
+                bits += 1;
+                if div_by_two == 1 {
+                    break;
+                }
+            }
+            let ident = input.ident;
+            let mut variant_match_arms = TokenStream::new();
+            for variant in &enumeration.variants {
+                let vident = &variant.ident;
+                variant_match_arms.extend(quote! {
+                    x if x == Self::#vident as u64 => Self::#vident,
+                });
+            }
+            let ident_str = ident.to_string();
+            variant_match_arms.extend(quote! {
+                _ => panic!("Received unexpected value {} for enum {}", val, #ident_str)
+            });
+            Ok(quote! {
+                impl bitfield::Specifier for #ident {
+                    const BITS: usize = #bits;
+                    type UTYPE = Self;
+
+                    fn from_u64(val: u64) -> Self::UTYPE {
+                        match val {
+                            #variant_match_arms
+                        }
+                    }
+                }
+            })
+        } else {
+            Err(syn::Error::new(
+                input.span(),
+                "Macro can only be applied to enums",
+            ))
+        }
+    }
 }
