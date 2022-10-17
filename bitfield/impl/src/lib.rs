@@ -1,5 +1,5 @@
 use proc_macro2::TokenStream;
-use quote::{format_ident, quote};
+use quote::{format_ident, quote, quote_spanned};
 use syn::parse::{Parse, ParseStream};
 use syn::spanned::Spanned;
 use syn::{braced, parse_macro_input, Data, Field, Ident, Token, Type, Visibility};
@@ -78,118 +78,182 @@ pub fn bitfield(
 ) -> proc_macro::TokenStream {
     let _ = args;
     let input = parse_macro_input!(input as StructInfo);
-    let out_ident = &input.ident;
-    let out_vis = input.vis;
-    let mut path_vec = Vec::new();
-    let mut const_offsets = TokenStream::new();
-    let mut setters = TokenStream::new();
-    let mut getters = TokenStream::new();
-    let mut previous_const = None;
-    let mut previous_specifier = None;
-    for field in &input.fields {
+    let mut attribute_code_generator = BitfieldAttributeCodeGenerator::default();
+    attribute_code_generator
+        .gen_output(input)
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
+
+#[derive(Default)]
+struct BitfieldAttributeCodeGenerator {
+    setters: TokenStream,
+    getters: TokenStream,
+    const_offsets: TokenStream,
+    bit_attr_checks: TokenStream,
+    path_vec: Vec<syn::Path>,
+}
+
+impl BitfieldAttributeCodeGenerator {
+    fn gen_output(&mut self, input: StructInfo) -> syn::Result<TokenStream> {
+        let out_ident = &input.ident;
+        let out_vis = input.vis;
+        let mut previous_const = None;
+        let mut previous_specifier = None;
+        for field in &input.fields {
+            self.handle_field(field, &mut previous_const, &mut previous_specifier)?;
+        }
+
+        let path_vec = &self.path_vec;
+        let full_len_bits = quote! { (#(<#path_vec as bitfield::Specifier>::BITS)+*) };
+        let full_len_bytes = quote! {
+           #full_len_bits / 8
+        };
+        let setters = &self.setters;
+        let getters = &self.getters;
+        let const_offsets = &self.const_offsets;
+        let bit_attr_checks = &self.bit_attr_checks;
+        Ok(quote! {
+            #[repr(C)]
+            #out_vis struct #out_ident {
+                raw_data: [u8; #full_len_bytes]
+            }
+
+
+            impl #out_ident {
+                #const_offsets
+                #bit_attr_checks
+
+                const FULL_LEN_MOD_EIGHT: usize = #full_len_bits % 8;
+
+                pub fn new() -> Self {
+                    bitfield::checks::width_check::<
+                        <bitfield::checks::NumDummy<{ Self::FULL_LEN_MOD_EIGHT }> as bitfield::checks::NumToGeneric>
+                        ::GENERIC
+                    >();
+                    Self {
+                        raw_data: [0; #full_len_bytes]
+                    }
+                }
+
+                // These two functions were taken from the reference implementation,
+                // which is vastly superior to what I hacked together
+                // https://github.com/dtolnay/proc-macro-workshop/issues/55
+                pub fn set(&mut self, val: u64, offset: usize, width: usize) {
+                    for i in 0..width {
+                        let mask = 1 << i;
+                        let val_bit_is_set = val & mask == mask;
+                        let offset = i + offset;
+                        let byte_index = offset / 8;
+                        let bit_offset = offset % 8;
+                        let byte = &mut self.raw_data[byte_index];
+                        let mask = 1 << bit_offset;
+                        if val_bit_is_set {
+                            *byte |= mask;
+                        } else {
+                            *byte &= !mask;
+                        }
+                    }
+                }
+                pub fn get(&self, offset: usize, width: usize) -> u64 {
+                    let mut val = 0;
+                    for i in 0..width {
+                        let offset = i + offset;
+                        let byte_index = offset / 8;
+                        let bit_offset = offset % 8;
+                        let byte = self.raw_data[byte_index];
+                        let mask = 1 << bit_offset;
+                        if byte & mask == mask {
+                            val |= 1 << i;
+                        }
+                    }
+                    val
+                }
+                pub fn raw_data(&self) -> &[u8] {
+                    self.raw_data.as_ref()
+                }
+
+                #setters
+                #getters
+            }
+        })
+    }
+
+    fn handle_field(
+        &mut self,
+        field: &Field,
+        previous_const: &mut Option<Ident>,
+        previous_specifier: &mut Option<TokenStream>,
+    ) -> syn::Result<()> {
         if let Some(ident) = &field.ident {
-            let offset_ident = format_ident!("OFFSET_{}", ident.to_string().to_uppercase());
+            let mut bit_from_bits_attr = None;
+            let mut span_attr = None;
+            if let Some(attr) = field.attrs.first() {
+                if let syn::Meta::NameValue(meta_nv) = attr.parse_meta()? {
+                    span_attr = Some(meta_nv.lit.span());
+                    if let Some(path) = meta_nv.path.segments.first() {
+                        if path.ident == "bits" {
+                            if let syn::Lit::Int(bits_num) = meta_nv.lit {
+                                bit_from_bits_attr = Some(bits_num.base10_parse::<usize>()?);
+                            } else {
+                                return Err(syn::Error::new(
+                                    meta_nv.lit.span(),
+                                    "Only integer literals are allowed for the bit specifier",
+                                ));
+                            }
+                        } else {
+                            return Err(syn::Error::new(
+                                meta_nv.span(),
+                                "Only the bits field attribute is supported",
+                            ));
+                        }
+                    }
+                }
+            }
+
+            let ident_upper_case = ident.clone().to_string().to_uppercase();
+            let offset_ident = format_ident!("OFFSET_{}", ident_upper_case);
             let scoped_offset_ident = quote! { Self::#offset_ident };
             if let Type::Path(p) = &field.ty {
                 let path = p.path.clone();
                 let specifier_path = quote! { <#path as bitfield::Specifier> };
 
                 if let Some(previous_const) = previous_const {
-                    const_offsets.extend(quote! {
+                    self.const_offsets.extend(quote! {
                         const #offset_ident: usize = Self::#previous_const + #previous_specifier::BITS;
                     });
                 } else {
-                    const_offsets.extend(quote! {
+                    self.const_offsets.extend(quote! {
                         const #offset_ident: usize = 0;
                     });
                 }
-                previous_const = Some(offset_ident.clone());
-                previous_specifier = Some(specifier_path.clone());
-                path_vec.push(path);
+                *previous_const = Some(offset_ident);
+                *previous_specifier = Some(specifier_path.clone());
+                self.path_vec.push(path);
                 let setter_name = format_ident!("set_{}", ident);
                 let getter_name = format_ident!("get_{}", ident);
-                setters.extend(quote! {
+                self.setters.extend(quote! {
                     pub fn #setter_name(&mut self, val: #specifier_path::UTYPE) {
                         self.set(val as u64, #scoped_offset_ident, #specifier_path::BITS);
                     }
                 });
-                getters.extend(quote! {
+                self.getters.extend(quote! {
                     pub fn #getter_name(&self) -> #specifier_path::UTYPE {
                         let val = self.get(#scoped_offset_ident, #specifier_path::BITS);
                         #specifier_path::from_u64(val)
                     }
-                })
+                });
+                if let Some(bit_attr) = bit_from_bits_attr {
+                    let span = span_attr.expect("No span attribute found");
+                    let check_ident = format_ident!("__CHECK_{}", ident_upper_case);
+                    self.bit_attr_checks.extend(quote_spanned! {span=>
+                        const #check_ident: [(); #bit_attr] = [(); #specifier_path::BITS];
+                    })
+                }
             }
         }
+        Ok(())
     }
-
-    let full_len_bits = quote! { (#(<#path_vec as bitfield::Specifier>::BITS)+*) };
-    let full_len_bytes = quote! {
-       #full_len_bits / 8
-    };
-    let output = quote! {
-        #[repr(C)]
-        #out_vis struct #out_ident {
-            raw_data: [u8; #full_len_bytes]
-        }
-
-        impl #out_ident {
-            #const_offsets
-
-            const FULL_LEN_MOD_EIGHT: usize = #full_len_bits % 8;
-
-            pub fn new() -> Self {
-                bitfield::checks::width_check::<
-                    <bitfield::checks::NumDummy<{ Self::FULL_LEN_MOD_EIGHT }> as bitfield::checks::NumToGeneric>
-                    ::GENERIC
-                >();
-                Self {
-                    raw_data: [0; #full_len_bytes]
-                }
-            }
-
-            // These two functions were taken from the reference implementation,
-            // which is vastly superior to what I hacked together
-            // https://github.com/dtolnay/proc-macro-workshop/issues/55
-            pub fn set(&mut self, val: u64, offset: usize, width: usize) {
-                for i in 0..width {
-                    let mask = 1 << i;
-                    let val_bit_is_set = val & mask == mask;
-                    let offset = i + offset;
-                    let byte_index = offset / 8;
-                    let bit_offset = offset % 8;
-                    let byte = &mut self.raw_data[byte_index];
-                    let mask = 1 << bit_offset;
-                    if val_bit_is_set {
-                        *byte |= mask;
-                    } else {
-                        *byte &= !mask;
-                    }
-                }
-            }
-            pub fn get(&self, offset: usize, width: usize) -> u64 {
-                let mut val = 0;
-                for i in 0..width {
-                    let offset = i + offset;
-                    let byte_index = offset / 8;
-                    let bit_offset = offset % 8;
-                    let byte = self.raw_data[byte_index];
-                    let mask = 1 << bit_offset;
-                    if byte & mask == mask {
-                        val |= 1 << i;
-                    }
-                }
-                val
-            }
-            pub fn raw_data(&self) -> &[u8] {
-                self.raw_data.as_ref()
-            }
-
-            #setters
-            #getters
-        }
-    };
-    output.into()
 }
 
 #[proc_macro_derive(BitfieldSpecifier)]
@@ -225,10 +289,18 @@ impl BitfieldDeriver {
             }
             let ident = input.ident;
             let mut variant_match_arms = TokenStream::new();
+            let mut discriminant_checks = TokenStream::new();
             for variant in &enumeration.variants {
                 let vident = &variant.ident;
                 variant_match_arms.extend(quote! {
                     x if x == Self::#vident as u64 => Self::#vident,
+                });
+                let vspan = variant.span();
+                discriminant_checks.extend(quote_spanned! {vspan=>
+                    let _: bitfield::checks::DiscriminantCheck<
+                        bitfield::checks::Assert<
+                        { (Self::#vident as usize) < 2usize.pow(Self::BITS as u32)}
+                    >>;
                 });
             }
             let ident_str = ident.to_string();
@@ -241,6 +313,7 @@ impl BitfieldDeriver {
                     type UTYPE = Self;
 
                     fn from_u64(val: u64) -> Self::UTYPE {
+                        #discriminant_checks
                         match val {
                             #variant_match_arms
                         }

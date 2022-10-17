@@ -96,18 +96,12 @@ pub mod checks {
 
     pub struct Assert<const EXPR: bool> {}
 
-    //const DISCRIM: usize = 0b101;
-    //const BITS: usize = 3;
-    //const EXPR: bool = DISCRIM < 2usize.pow(BITS as u32);
-
-    //pub fn discrim_smaller_than_bits<const DISCRIM: usize, const BITS: usize>() {
-    //    let _: Assert<{ DISCRIM < 2usize.pow(BITS as u32) }>;
-    //}
-
     pub trait DiscriminantInRange {}
 
     impl DiscriminantInRange for Assert<true> {}
 
     pub fn discriminant_check<T: DiscriminantInRange>() {}
-    pub struct DiscriminantCheck<T: DiscriminantInRange> { phantom: PhantomData<T> }
+    pub struct DiscriminantCheck<T: DiscriminantInRange> {
+        phantom: PhantomData<T>,
+    }
 }
